@@ -1,0 +1,11 @@
+{
+  "name": "project1",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-02-07",
+  "rules": [
+    {
+      "type": "Text",
+      "globs": ["**/*.html"]
+    }
+  ]
+}
