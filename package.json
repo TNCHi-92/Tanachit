@@ -8,6 +8,7 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^0.10.4",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "pg": "^8.13.1"
