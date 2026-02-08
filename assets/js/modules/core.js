@@ -601,9 +601,23 @@
                 return;
             }
 
-            const longestNameLen = selectedNames.reduce((maxLen, name) => Math.max(maxLen, String(name || '').trim().length), 0);
-            const expandedWidth = 900 + Math.max(0, longestNameLen - 6) * 18;
-            const targetWidth = Math.max(900, Math.min(1160, expandedWidth));
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            if (ctx) ctx.font = "600 16px 'Prompt', sans-serif";
+            const longestNamePx = selectedNames.reduce((maxPx, name) => {
+                const text = String(name || '').trim();
+                if (!ctx) return Math.max(maxPx, text.length * 16);
+                return Math.max(maxPx, ctx.measureText(text).width);
+            }, 0);
+
+            const cellWidthNeeded = Math.max(140, Math.ceil(longestNamePx + 116));
+            const gridGap = 10;
+            const columns = window.innerWidth <= 768 ? 3 : 6;
+            const gridWidthNeeded = (cellWidthNeeded * columns) + (gridGap * (columns - 1));
+            const modalPaddingX = 70;
+            const expandedWidth = 900 + Math.max(0, gridWidthNeeded + modalPaddingX - 900);
+            const viewportCap = Math.max(900, window.innerWidth - 24);
+            const targetWidth = Math.max(900, Math.min(viewportCap, expandedWidth));
             content.style.maxWidth = `${targetWidth}px`;
         }
 
