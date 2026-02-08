@@ -233,6 +233,47 @@
             gap: 20px;
         }
 
+        .snack-groups {
+            display: flex;
+            flex-direction: column;
+            gap: 22px;
+        }
+
+        .snack-group {
+            background: linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%);
+            border: 2px solid var(--border);
+            border-radius: 20px;
+            padding: 18px;
+        }
+
+        .snack-group-title {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            font-family: 'Mitr', sans-serif;
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--text-dark);
+            margin-bottom: 14px;
+        }
+
+        .snack-group-count {
+            color: var(--text-light);
+            font-family: 'Prompt', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .snack-group-empty {
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 14px;
+            text-align: center;
+            color: var(--text-light);
+            font-size: 0.95rem;
+            background: #fff;
+        }
+
         .snack-item {
             background: linear-gradient(135deg, #f5f7fa 0%, #ffffff 100%);
             border: 3px solid var(--border);
@@ -280,14 +321,16 @@
         }
 
         .snack-img {
-            width: 70px;
-            height: 70px;
-            object-fit: cover;
+            width: 80px;
+            height: 80px;
+            object-fit: contain;
             border-radius: 12px;
             margin-bottom: 12px;
             display: block;
             margin-left: auto;
             margin-right: auto;
+            padding: 3px;
+            background: #fff;
             filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
         }
 
@@ -296,17 +339,21 @@
         }
 
         .snack-img-preview {
-            width: 40px;
-            height: 40px;
-            object-fit: cover;
+            width: 44px;
+            height: 44px;
+            object-fit: contain;
             border-radius: 8px;
+            padding: 2px;
+            background: #fff;
         }
 
         .snack-img-modal {
-            width: 50px;
-            height: 50px;
-            object-fit: cover;
+            width: 56px;
+            height: 56px;
+            object-fit: contain;
             border-radius: 10px;
+            padding: 2px;
+            background: #fff;
         }
 
         .snack-img-mini {
@@ -418,6 +465,12 @@
             font-size: 1rem;
             font-weight: 600;
             color: var(--primary);
+        }
+
+        .snack-sold-total {
+            margin-top: 6px;
+            font-size: 0.95rem;
+            color: var(--text-light);
         }
 
         .modal {
@@ -600,6 +653,39 @@
         .customer-btn.selected {
             justify-content: space-between;
             padding: 8px 10px;
+        }
+
+        .customer-btn.shift-a {
+            border-color: #60A5FA;
+            color: #1D4ED8;
+            background: linear-gradient(135deg, #EFF6FF, #FFFFFF);
+        }
+
+        .customer-btn.shift-b {
+            border-color: #34D399;
+            color: #047857;
+            background: linear-gradient(135deg, #ECFDF5, #FFFFFF);
+        }
+
+        .customer-btn.shift-c {
+            border-color: #FBBF24;
+            color: #B45309;
+            background: linear-gradient(135deg, #FFFBEB, #FFFFFF);
+        }
+
+        .customer-btn.shift-d {
+            border-color: #C084FC;
+            color: #7C3AED;
+            background: linear-gradient(135deg, #FAF5FF, #FFFFFF);
+        }
+
+        .customer-btn.selected.shift-a,
+        .customer-btn.selected.shift-b,
+        .customer-btn.selected.shift-c,
+        .customer-btn.selected.shift-d {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            border-color: var(--primary);
+            color: white;
         }
 
         .qty-btn {
@@ -858,6 +944,20 @@
             .snack-grid {
                 grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
                 gap: 15px;
+            }
+
+            .snack-groups {
+                gap: 16px;
+            }
+
+            .snack-group {
+                padding: 14px;
+                border-radius: 16px;
+            }
+
+            .snack-group-title {
+                font-size: 1.05rem;
+                margin-bottom: 10px;
             }
 
             .snack-emoji {

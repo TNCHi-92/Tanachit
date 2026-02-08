@@ -1,17 +1,17 @@
-// Default snack items
+        // Default snack items
         const defaultSnacks = [
-            { id: 1, name: 'มาม่า', emoji: '🍜', price: 7, stock: 50 },
-            { id: 2, name: 'โคคา', emoji: '🥤', price: 15, stock: 30 },
-            { id: 3, name: 'น้ำดื่ม', emoji: '💧', price: 7, stock: 100 },
-            { id: 4, name: 'เลย์', emoji: '🥔', price: 20, stock: 40 },
-            { id: 5, name: 'ปลากราบ', emoji: '🐟', price: 10, stock: 30 },
-            { id: 6, name: 'ขนมปัง', emoji: '🍞', price: 12, stock: 25 },
-            { id: 7, name: 'นม', emoji: '🥛', price: 15, stock: 20 },
-            { id: 8, name: 'กาแฟ', emoji: '☕', price: 25, stock: 30 },
-            { id: 9, name: 'ช็อคโกแลต', emoji: '🍫', price: 30, stock: 15 },
-            { id: 10, name: 'ไอศกรีม', emoji: '🍦', price: 35, stock: 10 },
-            { id: 11, name: 'คุกกี้', emoji: '🍪', price: 18, stock: 20 },
-            { id: 12, name: 'ขนมอบ', emoji: '🥐', price: 22, stock: 15 }
+            { id: 1, name: 'มาม่า', emoji: '🍜', price: 7, stock: 50, category: 'snack' },
+            { id: 2, name: 'โคคา', emoji: '🥤', price: 15, stock: 30, category: 'snack' },
+            { id: 3, name: 'น้ำดื่ม', emoji: '💧', price: 7, stock: 100, category: 'snack' },
+            { id: 4, name: 'เลย์', emoji: '🥔', price: 20, stock: 40, category: 'snack' },
+            { id: 5, name: 'ปลากราบ', emoji: '🐟', price: 10, stock: 30, category: 'snack' },
+            { id: 6, name: 'ขนมปัง', emoji: '🍞', price: 12, stock: 25, category: 'snack' },
+            { id: 7, name: 'นม', emoji: '🥛', price: 15, stock: 20, category: 'snack' },
+            { id: 8, name: 'กาแฟ', emoji: '☕', price: 25, stock: 30, category: 'snack' },
+            { id: 9, name: 'ช็อคโกแลต', emoji: '🍫', price: 30, stock: 15, category: 'snack' },
+            { id: 10, name: 'ไอศกรีม', emoji: '🍦', price: 35, stock: 10, category: 'ice_cream' },
+            { id: 11, name: 'คุกกี้', emoji: '🍪', price: 18, stock: 20, category: 'snack' },
+            { id: 12, name: 'ขนมอบ', emoji: '🥐', price: 22, stock: 15, category: 'snack' }
         ];
 
         // Default customer list with shifts
@@ -46,6 +46,23 @@
         let remoteSyncEnabled = false;
         let syncTimer = null;
 
+        function inferSnackCategoryByName(name = '') {
+            const lower = String(name || '').toLowerCase();
+            const iceKeywords = ['ice cream', 'icecream', 'ice-cream', 'gelato', 'sorbet', 'ไอศกรีม', 'ไอติม'];
+            return iceKeywords.some(keyword => lower.includes(keyword)) ? 'ice_cream' : 'snack';
+        }
+
+        function normalizeSnackCategory(category, name = '') {
+            const value = String(category || '').trim().toLowerCase().replace(/\s+/g, '_');
+            if (value === 'ice_cream' || value === 'icecream' || value === 'ice-cream') return 'ice_cream';
+            if (value === 'snack') return 'snack';
+            return inferSnackCategoryByName(name);
+        }
+
+        function snackCategoryLabel(category) {
+            return normalizeSnackCategory(category) === 'ice_cream' ? 'ตู้เย็น' : 'ขนม';
+        }
+
         function normalizeSnackData(list) {
             if (!Array.isArray(list)) return [];
             return list.map(item => ({
@@ -54,7 +71,8 @@
                 sellPrice: Math.max(0, Number(item.sellPrice ?? item.price) || 0),
                 stock: Math.max(0, Number(item.stock) || 0),
                 costPrice: Math.max(0, Number(item.costPrice) || 0),
-                totalSold: Math.max(0, Number(item.totalSold) || 0)
+                totalSold: Math.max(0, Number(item.totalSold) || 0),
+                category: normalizeSnackCategory(item.category, item.name)
             }));
         }
 
@@ -454,9 +472,7 @@
         }
 
         // Render snack grid
-        function renderSnackGrid() {
-            const grid = document.getElementById('snackGrid');
-            grid.innerHTML = snacks.map(snack => {
+        function renderSnackCard(snack) {
                 const stock = snack.stock || 0;
                 const soldOut = stock <= 0;
                 let stockClass = 'in-stock';
@@ -473,7 +489,38 @@
                         <div class="snack-stock ${stockClass}">${stockText}</div>
                     </div>
                 `;
-            }).join('');
+        }
+
+        function renderSnackGroup(title, items) {
+            if (!items || items.length === 0) {
+                return `
+                    <div class="snack-group">
+                        <div class="snack-group-title">${title} <span class="snack-group-count">(0)</span></div>
+                        <div class="snack-group-empty">ยังไม่มีสินค้าในกลุ่มนี้</div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="snack-group">
+                    <div class="snack-group-title">${title} <span class="snack-group-count">(${items.length})</span></div>
+                    <div class="snack-grid">
+                        ${items.map(renderSnackCard).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSnackGrid() {
+            const grid = document.getElementById('snackGrid');
+            const normalized = normalizeSnackData(snacks);
+            const snackItems = normalized.filter(item => normalizeSnackCategory(item.category, item.name) !== 'ice_cream');
+            const iceCreamItems = normalized.filter(item => normalizeSnackCategory(item.category, item.name) === 'ice_cream');
+
+            grid.innerHTML = `
+                ${renderSnackGroup('🍪 กลุ่มขนม', snackItems)}
+                ${renderSnackGroup('🍦 กลุ่มตู้เย็น', iceCreamItems)}
+            `;
         }
 
         // Select snack
@@ -516,11 +563,13 @@
 
             grid.innerHTML = filteredCustomers.map(c => {
                 const name = c.name;
+                const shift = String(c.shift || '').toUpperCase();
+                const shiftClass = ['A', 'B', 'C', 'D'].includes(shift) ? `shift-${shift.toLowerCase()}` : '';
                 const qty = selectedCustomers[name] || 0;
                 const isSelected = qty > 0;
                 if (isSelected) {
                     return `
-                        <div class="customer-btn selected" onclick="selectCustomer('${name}')">
+                        <div class="customer-btn selected ${shiftClass}" onclick="selectCustomer('${name}')">
                             <button class="qty-btn qty-btn-minus" onclick="event.stopPropagation(); changeQty('${name}', -1)">-</button>
                             <span class="customer-name-label">${name} <strong>(${qty})</strong></span>
                             <button class="qty-btn qty-btn-plus" onclick="event.stopPropagation(); changeQty('${name}', 1)">+</button>
@@ -528,7 +577,7 @@
                     `;
                 }
                 return `
-                    <button class="customer-btn" onclick="selectCustomer('${name}')">
+                    <button class="customer-btn ${shiftClass}" onclick="selectCustomer('${name}')">
                         ${name}
                     </button>
                 `;
@@ -539,6 +588,23 @@
             const shiftBtns = document.querySelectorAll('.shift-btn');
             const shiftIndex = ['all', 'A', 'B', 'C', 'D'].indexOf(activeShift);
             if (shiftBtns[shiftIndex]) shiftBtns[shiftIndex].classList.add('active');
+        }
+
+        function updateCustomerModalWidth() {
+            const modal = document.getElementById('customerModal');
+            const content = modal ? modal.querySelector('.modal-content') : null;
+            if (!content) return;
+
+            const selectedNames = Object.keys(selectedCustomers || {});
+            if (selectedNames.length === 0) {
+                content.style.maxWidth = '900px';
+                return;
+            }
+
+            const longestNameLen = selectedNames.reduce((maxLen, name) => Math.max(maxLen, String(name || '').trim().length), 0);
+            const expandedWidth = 900 + Math.max(0, longestNameLen - 6) * 18;
+            const targetWidth = Math.max(900, Math.min(1160, expandedWidth));
+            content.style.maxWidth = `${targetWidth}px`;
         }
 
         // Filter by shift
@@ -595,6 +661,7 @@
             } else {
                 section.style.display = 'none';
             }
+            updateCustomerModalWidth();
         }
 
         // Confirm purchase for all selected customers
@@ -625,12 +692,23 @@
             const unitPrice = Number(selectedSnack.price) || 0;
             const unitCost = Number(selectedSnack.costPrice) || 0;
             const unitProfit = unitPrice - unitCost;
+            const snackSnapshot = {
+                id: selectedSnack.id,
+                name: selectedSnack.name,
+                emoji: selectedSnack.emoji || null,
+                image: null,
+                stock: Number(selectedSnack.stock) || 0,
+                price: unitPrice,
+                sellPrice: unitPrice,
+                costPrice: unitCost
+            };
+            const newPurchases = [];
             Object.entries(selectedCustomers).forEach(([customerName, qty]) => {
                 for (let i = 0; i < qty; i++) {
-                    const purchase = {
+                    newPurchases.push({
                         id: Date.now() + Math.random(),
                         customerName: customerName,
-                        snack: { ...selectedSnack },
+                        snack: snackSnapshot,
                         price: unitPrice,
                         unitPrice: unitPrice,
                         unitCost: unitCost,
@@ -638,10 +716,10 @@
                         cost: unitCost,
                         profit: unitProfit,
                         date: now
-                    };
-                    purchases.unshift(purchase);
+                    });
                 }
             });
+            purchases = newPurchases.concat(purchases);
 
             // Decrease stock
             snackInList.stock -= totalQty;
@@ -666,6 +744,7 @@
             document.getElementById('customerModal').classList.remove('active');
             selectedSnack = null;
             selectedCustomers = {};
+            updateCustomerModalWidth();
         }
 
         // Update today's summary
@@ -713,4 +792,80 @@
             });
 
             listContainer.innerHTML = html;
+        }
+
+        // Show toast notification
+        function showToast(message, type = 'success') {
+            const existingToast = document.querySelector('.toast');
+            if (existingToast) {
+                existingToast.remove();
+            }
+
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+
+            if (type === 'warning') {
+                toast.style.background = 'linear-gradient(135deg, var(--warning), #F2B84B)';
+            } else if (type === 'info') {
+                toast.style.background = 'linear-gradient(135deg, var(--secondary), #3FBDB5)';
+            }
+
+            document.body.appendChild(toast);
+
+            setTimeout(() => {
+                toast.style.animation = 'slideInFromRight 0.4s ease-out reverse';
+                setTimeout(() => toast.remove(), 400);
+            }, 3000);
+        }
+
+        // Save purchases to localStorage
+        function savePurchases() {
+            localStorage.setItem('snackPurchases', JSON.stringify(purchases));
+            scheduleStateSync();
+            void flushStateSync();
+        }
+
+        // Load purchases from localStorage
+        function loadPurchases() {
+            const saved = localStorage.getItem('snackPurchases');
+            if (saved) {
+                purchases = JSON.parse(saved).map(p => {
+                    const unitPrice = Number(p.unitPrice ?? p.price) || 0;
+                    const unitCost = Number(p.unitCost ?? p.snack?.costPrice) || 0;
+                    const profit = Number.isFinite(Number(p.profit))
+                        ? Number(p.profit)
+                        : (unitPrice - unitCost);
+                    const snackRef = p?.snack && typeof p.snack === 'object'
+                        ? {
+                            id: p.snack.id ?? null,
+                            name: p.snack.name || 'ไม่ระบุสินค้า',
+                            emoji: p.snack.emoji || null,
+                            image: null,
+                            stock: Number.isFinite(Number(p.snack.stock)) ? Number(p.snack.stock) : null,
+                            price: unitPrice,
+                            sellPrice: unitPrice,
+                            costPrice: unitCost
+                        }
+                        : {
+                            id: null,
+                            name: 'ไม่ระบุสินค้า',
+                            emoji: null,
+                            image: null,
+                            stock: null,
+                            price: unitPrice,
+                            sellPrice: unitPrice,
+                            costPrice: unitCost
+                        };
+                    return {
+                        ...p,
+                        snack: snackRef,
+                        unitPrice,
+                        unitCost,
+                        revenue: Number(p.revenue ?? unitPrice) || 0,
+                        cost: Number(p.cost ?? unitCost) || 0,
+                        profit
+                    };
+                });
+            }
         }

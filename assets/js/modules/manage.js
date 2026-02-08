@@ -92,8 +92,9 @@
             const summary = document.getElementById('profitSummaryCards');
             const productList = document.getElementById('profitProductList');
             const bestSellerList = document.getElementById('bestSellerList');
+            const worstSellerList = document.getElementById('worstSellerList');
             const auditLogList = document.getElementById('auditLogList');
-            if (!summary || !productList || !bestSellerList || !auditLogList) return;
+            if (!summary || !productList || !bestSellerList || !worstSellerList || !auditLogList) return;
 
             summary.innerHTML = `
                 <div class="stat-card">
@@ -159,6 +160,46 @@
                             </div>
                         </div>
                     `).join('');
+            }
+
+            const soldBySnackName = new Map(rows.map(r => [r.snackName, r]));
+            const worstRows = snacks.map(s => {
+                const name = s?.name || 'Unknown';
+                const fromSales = soldBySnackName.get(name);
+                const soldQty = Number(fromSales?.soldQty) || 0;
+                const revenue = Number(fromSales?.revenue) || 0;
+                const cost = Number(fromSales?.cost) || 0;
+                const profit = Number(fromSales?.profit) || 0;
+                return {
+                    snackName: name,
+                    soldQty,
+                    revenue,
+                    cost,
+                    profit,
+                    stock: Math.max(0, Number(s?.stock) || 0)
+                };
+            })
+                .sort((a, b) => a.soldQty - b.soldQty || a.revenue - b.revenue || b.stock - a.stock || a.snackName.localeCompare(b.snackName))
+                .slice(0, 5);
+
+            if (worstRows.length === 0) {
+                worstSellerList.innerHTML = '<div class="empty-state" style="padding: 24px;"><div class="empty-state-icon">📦</div><p>ยังไม่มีข้อมูลสินค้า</p></div>';
+            } else {
+                worstSellerList.innerHTML = worstRows.map((r, idx) => `
+                    <div class="customer-detail-item">
+                        <div class="customer-detail-header">
+                            <div class="customer-detail-name">#${idx + 1} ${r.snackName}</div>
+                            <div class="customer-detail-total">${r.soldQty} ชิ้น</div>
+                        </div>
+                        <div class="customer-detail-info">
+                            <span>ยอดขาย ${r.revenue} &#3647;</span>
+                            <span>กำไร ${r.profit} &#3647;</span>
+                        </div>
+                        <div class="customer-detail-info">
+                            <span>สต็อกคงเหลือ ${r.stock}</span>
+                        </div>
+                    </div>
+                `).join('');
             }
 
             const auditQuery = (document.getElementById('auditSearch')?.value || '').trim().toLowerCase();
@@ -234,6 +275,7 @@
         // Preview image when selected in add form
         let pendingSnackImage = null;
         let editingSnackId = null;
+        let imageUploadSetupDone = false;
 
         function refreshSnackFormMode() {
             const saveBtn = document.getElementById('saveSnackBtn');
@@ -249,6 +291,21 @@
             }
         }
 
+        function toMoney2(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return '';
+            return n.toFixed(2);
+        }
+
+        function formatSnackMoneyInput(inputId) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            if (String(input.value || '').trim() === '') return;
+            const n = Number(input.value);
+            if (!Number.isFinite(n)) return;
+            input.value = toMoney2(Math.max(0, n));
+        }
+
         function resetSnackForm() {
             editingSnackId = null;
             pendingSnackImage = null;
@@ -256,6 +313,7 @@
             document.getElementById('newSnackName').value = '';
             document.getElementById('newSnackPrice').value = '';
             document.getElementById('newSnackCost').value = '';
+            document.getElementById('newSnackCategory').value = 'snack';
             document.getElementById('newSnackStock').value = '';
             updateImagePreview();
             refreshSnackFormMode();
@@ -269,8 +327,9 @@
             pendingSnackImage = snack.image || null;
             document.getElementById('newSnackImage').value = '';
             document.getElementById('newSnackName').value = snack.name || '';
-            document.getElementById('newSnackPrice').value = snack.price || '';
-            document.getElementById('newSnackCost').value = snack.costPrice || 0;
+            document.getElementById('newSnackPrice').value = toMoney2(Number(snack.price) || 0);
+            document.getElementById('newSnackCost').value = toMoney2(Number(snack.costPrice) || 0);
+            document.getElementById('newSnackCategory').value = normalizeSnackCategory(snack.category, snack.name);
             document.getElementById('newSnackStock').value = snack.stock || 0;
             updateImagePreview();
             refreshSnackFormMode();
@@ -281,28 +340,68 @@
             resetSnackForm();
         }
 
+        function isImageFileLike(file, mimeHint = '') {
+            if (!file) return false;
+            const type = String(file.type || mimeHint || '').toLowerCase();
+            if (type.startsWith('image/')) return true;
+            const name = String(file.name || '').toLowerCase();
+            return /\.(png|jpe?g|gif|bmp|webp|svg|heic|heif|avif)$/i.test(name);
+        }
+
         // Process image file (from file input, paste, or drag)
-        function processImageFile(file) {
-            if (!file || !file.type.startsWith('image/')) return;
+        function processImageFile(file, options = {}) {
+            const silent = Boolean(options.silent);
+            if (!isImageFileLike(file)) {
+                if (!silent) showToast('⚠️ ไม่พบไฟล์รูปภาพในคลิปบอร์ด', 'warning');
+                return false;
+            }
 
             const reader = new FileReader();
             reader.onload = function(e) {
                 const img = new Image();
                 img.onload = function() {
                     const canvas = document.createElement('canvas');
-                    const maxSize = 150;
+                    const maxSize = 280;
                     let w = img.width, h = img.height;
                     if (w > h) { if (w > maxSize) { h = h * maxSize / w; w = maxSize; } }
                     else { if (h > maxSize) { w = w * maxSize / h; h = maxSize; } }
                     canvas.width = w;
                     canvas.height = h;
-                    canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-                    pendingSnackImage = canvas.toDataURL('image/jpeg', 0.7);
+                    const ctx = canvas.getContext('2d');
+                    ctx.imageSmoothingEnabled = true;
+                    ctx.imageSmoothingQuality = 'high';
+                    ctx.clearRect(0, 0, w, h);
+                    ctx.drawImage(img, 0, 0, w, h);
+
+                    const sourceType = String(file.type || '').toLowerCase();
+                    let dataUrl = '';
+
+                    if (sourceType.includes('png')) {
+                        dataUrl = canvas.toDataURL('image/png');
+                    } else {
+                        try {
+                            dataUrl = canvas.toDataURL('image/webp', 0.92);
+                        } catch (_err) {
+                            dataUrl = '';
+                        }
+                        if (!dataUrl || dataUrl === 'data:,') {
+                            dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+                        }
+                    }
+
+                    pendingSnackImage = dataUrl;
                     updateImagePreview();
+                };
+                img.onerror = function() {
+                    if (!silent) showToast('⚠️ อ่านรูปไม่สำเร็จ กรุณาลองใหม่', 'warning');
                 };
                 img.src = e.target.result;
             };
+            reader.onerror = function() {
+                if (!silent) showToast('⚠️ อ่านไฟล์รูปไม่สำเร็จ', 'warning');
+            };
             reader.readAsDataURL(file);
+            return true;
         }
 
         function updateImagePreview() {
@@ -318,7 +417,7 @@
 
         // From file input
         function previewSnackImage(input) {
-            processImageFile(input.files[0]);
+            processImageFile(input.files[0], { silent: false });
         }
 
         // Setup paste & drag-drop on the drop zone
@@ -331,42 +430,74 @@
         function getImageFromClipboardData(data) {
             if (!data) return null;
 
-            if (data.files && data.files.length > 0) {
-                for (const file of data.files) {
-                    if (file.type && file.type.startsWith('image/')) return file;
-                }
+            const items = Array.from(data.items || []);
+            for (const item of items) {
+                if (item.kind !== 'file') continue;
+                const file = item.getAsFile();
+                if (isImageFileLike(file, item.type)) return file;
             }
 
-            const items = data.items || [];
-            for (const item of items) {
-                if (item.type && item.type.startsWith('image/')) {
-                    return item.getAsFile();
+            const files = Array.from(data.files || []);
+            if (files.length > 0) {
+                for (const file of files) {
+                    if (isImageFileLike(file)) return file;
                 }
             }
             return null;
         }
 
-        function handlePasteImageEvent(e) {
-            if (!isSnackManageTabActive()) return false;
+        function getClipboardImageCandidate(data) {
+            if (!data || typeof data.getData !== 'function') return null;
+            const html = data.getData('text/html') || '';
+            const uriList = data.getData('text/uri-list') || '';
+            const plain = data.getData('text/plain') || '';
 
-            const file = getImageFromClipboardData(e.clipboardData);
-            if (!file) return false;
+            const fromHtml = html.match(/<img[^>]+src=["']([^"']+)["']/i)?.[1] || '';
+            const candidates = [fromHtml, uriList, plain]
+                .map(v => String(v || '').trim())
+                .filter(Boolean);
 
-            e.preventDefault();
-            processImageFile(file);
-            showToast('✅ วางรูปสำเร็จ!', 'success');
-            return true;
+            for (const value of candidates) {
+                if (/^data:image\//i.test(value)) return value;
+                if (/^https?:\/\//i.test(value)) return value;
+            }
+            return null;
         }
 
-        async function pasteImageFromClipboard() {
-            if (!isSnackManageTabActive()) {
-                showToast('⚠️ เปิดแท็บสินค้าแล้วลองใหม่', 'warning');
-                return;
+        async function processImageSource(source, options = {}) {
+            const silent = Boolean(options.silent);
+            if (!source) return false;
+            try {
+                const res = await fetch(source);
+                if (!res.ok) {
+                    if (!silent) showToast(`⚠️ โหลดรูปไม่สำเร็จ (HTTP ${res.status})`, 'warning');
+                    return false;
+                }
+                const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+                if (!contentType.startsWith('image/')) {
+                    if (!silent) showToast('⚠️ ข้อมูลที่วางไม่ใช่รูปภาพ', 'warning');
+                    return false;
+                }
+                const blob = await res.blob();
+                return processImageFile(blob, { silent });
+            } catch (err) {
+                if (!silent) {
+                    const reason = String(err?.message || err?.name || 'Unknown error');
+                    showToast(`⚠️ อ่านรูปจากข้อมูลที่วางไม่ได้: ${reason}`, 'warning');
+                }
+                return false;
             }
+        }
 
+        function clipboardLooksLikeImage(data) {
+            const types = Array.from(data?.types || []).map(t => String(t).toLowerCase());
+            return types.some(t => t === 'files' || t.startsWith('image/'));
+        }
+
+        async function readImageFromNavigatorClipboard(showFailToast = true) {
             if (!navigator.clipboard || !navigator.clipboard.read) {
-                showToast('⚠️ เบราว์เซอร์ไม่รองรับปุ่มนี้ ให้ใช้ Ctrl+V แทน', 'warning');
-                return;
+                if (showFailToast) showToast('⚠️ เบราว์เซอร์ไม่รองรับการอ่านคลิปบอร์ดรูป', 'warning');
+                return false;
             }
 
             try {
@@ -376,29 +507,111 @@
                     if (!imageType) continue;
 
                     const blob = await item.getType(imageType);
-                    processImageFile(blob);
-                    showToast('✅ วางรูปสำเร็จ!', 'success');
-                    return;
+                    const ok = processImageFile(blob, { silent: !showFailToast });
+                    if (ok) return true;
                 }
-                showToast('⚠️ ไม่พบรูปในคลิปบอร์ด', 'warning');
+                if (showFailToast) showToast('⚠️ ไม่พบรูปในคลิปบอร์ด', 'warning');
+                return false;
             } catch (err) {
-                showToast('⚠️ กด Ctrl+V เพื่อวางรูปแทนปุ่มนี้', 'warning');
+                if (showFailToast) {
+                    const reason = String(err?.message || err?.name || 'Unknown error');
+                    showToast(`⚠️ อ่านรูปจากคลิปบอร์ดไม่ได้: ${reason}`, 'warning');
+                }
+                return false;
             }
         }
 
+        function handlePasteImageEvent(e) {
+            if (!isSnackManageTabActive()) return false;
+
+            // 1) Try to get image directly from sync clipboardData (works for most apps)
+            const file = getImageFromClipboardData(e.clipboardData);
+            if (file) {
+                e.preventDefault();
+                var ok = processImageFile(file, { silent: false });
+                if (ok) showToast('✅ วางรูปสำเร็จ!', 'success');
+                return ok;
+            }
+
+            // 2) Try to extract image URL/data from HTML in clipboardData
+            const source = getClipboardImageCandidate(e.clipboardData);
+            if (source) {
+                e.preventDefault();
+                void processImageSource(source, { silent: false }).then((ok) => {
+                    if (ok) showToast('✅ วางรูปสำเร็จ!', 'success');
+                });
+                return true;
+            }
+
+            // 3) Fallback for Excel/Office: clipboard.read() via setTimeout.
+            //    Chrome blocks navigator.clipboard.read() inside a paste handler,
+            //    so we let the paste complete normally first, then try async.
+            //    If image is found, we clean up any text that was pasted into the input.
+            var pasteTarget = document.activeElement;
+            var valueBefore = (pasteTarget && (pasteTarget.tagName === 'INPUT' || pasteTarget.tagName === 'TEXTAREA'))
+                ? pasteTarget.value : undefined;
+
+            setTimeout(function() {
+                readImageFromNavigatorClipboard(true).then(function(ok) {
+                    if (ok) {
+                        showToast('✅ วางรูปสำเร็จ!', 'success');
+                        // Undo text that browser pasted into the input
+                        if (pasteTarget && valueBefore !== undefined && pasteTarget.value !== valueBefore) {
+                            pasteTarget.value = valueBefore;
+                            pasteTarget.dispatchEvent(new Event('input', { bubbles: true }));
+                        }
+                    }
+                });
+            }, 0);
+
+            // Don't preventDefault — let browser paste text normally as fallback
+            return false;
+        }
+
+        async function pasteImageFromClipboard() {
+            if (!isSnackManageTabActive()) {
+                showToast('⚠️ เปิดแท็บสินค้าแล้วลองใหม่', 'warning');
+                return;
+            }
+            const ok = await readImageFromNavigatorClipboard(true);
+            if (ok) showToast('✅ วางรูปสำเร็จ!', 'success');
+        }
+
         function setupImageUpload() {
+            if (imageUploadSetupDone) return;
             const dropZone = document.getElementById('imageDropZone');
             if (!dropZone) return;
+            imageUploadSetupDone = true;
 
-            // Catch Ctrl+V globally when snack manage tab is active
+            // Catch Ctrl+V globally when snack manage tab is active (capture phase)
             document.addEventListener('paste', function(e) {
                 if (handlePasteImageEvent(e)) e.stopPropagation();
-            });
+            }, true);
+
+            // Fallback for browsers that don't dispatch paste file data reliably.
+            // When focus is on an input/textarea, let the paste event fire instead
+            // so handlePasteImageEvent can use navigator.clipboard.read().
+            document.addEventListener('keydown', function(e) {
+                if (!isSnackManageTabActive()) return;
+                const key = String(e.key || '').toLowerCase();
+                const isPasteShortcut = (e.ctrlKey || e.metaKey) && key === 'v';
+                if (!isPasteShortcut) return;
+
+                const target = e.target;
+                const tag = String(target?.tagName || '').toUpperCase();
+                const isTypingTarget = target?.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA';
+                if (isTypingTarget) return;
+
+                e.preventDefault();
+                void readImageFromNavigatorClipboard(true).then((ok) => {
+                    if (ok) showToast('✅ วางรูปสำเร็จ!', 'success');
+                });
+            }, true);
 
             // Keep support when user pastes inside the modal/drop zone
             document.getElementById('manageModal').addEventListener('paste', function(e) {
                 if (handlePasteImageEvent(e)) e.stopPropagation();
-            });
+            }, true);
 
             // Drag & drop
             dropZone.addEventListener('dragover', function(e) {
@@ -412,9 +625,11 @@
                 e.preventDefault();
                 dropZone.classList.remove('drag-over');
                 const file = e.dataTransfer?.files[0];
-                if (file && file.type.startsWith('image/')) {
-                    processImageFile(file);
+                if (isImageFileLike(file)) {
+                    processImageFile(file, { silent: false });
                     showToast('✅ วางรูปสำเร็จ!', 'success');
+                } else {
+                    showToast('⚠️ ไฟล์ที่วางไม่ใช่รูปภาพ', 'warning');
                 }
             });
 
@@ -435,8 +650,9 @@
                     <div class="manage-item-info">
                         ${getSnackDisplayHTML(s, 'manage')}
                         <span>${s.name}</span>
-                        <span class="manage-item-price">${s.price} ฿</span>
-                        <span style="font-size: 0.85rem; color: var(--text-light);">ทุน ${Number(s.costPrice) || 0} ฿</span>
+                        <span class="manage-item-price">${toMoney2(Number(s.price) || 0)} ฿</span>
+                        <span style="font-size: 0.85rem; color: var(--text-light);">ทุน ${toMoney2(Number(s.costPrice) || 0)} ฿</span>
+                        <span style="font-size: 0.85rem; color: var(--text-light);">กลุ่ม ${snackCategoryLabel(normalizeSnackCategory(s.category, s.name))}</span>
                         <span style="font-size: 0.85rem; color: var(--text-light);">ขายสะสม ${Number(s.totalSold) || 0} ชิ้น</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
@@ -462,8 +678,9 @@
         async function addSnack() {
             if (!ensureCanManageData()) return;
             const name = document.getElementById('newSnackName').value.trim();
-            const price = parseInt(document.getElementById('newSnackPrice').value);
-            const costPrice = parseInt(document.getElementById('newSnackCost').value) || 0;
+            const price = Number(document.getElementById('newSnackPrice').value);
+            const costPrice = Number(document.getElementById('newSnackCost').value) || 0;
+            const category = normalizeSnackCategory(document.getElementById('newSnackCategory').value, name);
             const stock = parseInt(document.getElementById('newSnackStock').value) || 0;
 
             if (!pendingSnackImage) { showToast('⚠️ กรุณาเลือกรูปสินค้า', 'warning'); return; }
@@ -472,7 +689,9 @@
             if (costPrice < 0) { showToast('⚠️ กรุณาใส่ราคาทุนที่ถูกต้อง', 'warning'); return; }
 
             const newId = snacks.length > 0 ? Math.max(...snacks.map(s => s.id)) + 1 : 1;
-            snacks.push({ id: newId, name, image: pendingSnackImage, emoji: '', price, sellPrice: price, costPrice, totalSold: 0, stock });
+            const normalizedPrice = Number(price.toFixed(2));
+            const normalizedCostPrice = Number(costPrice.toFixed(2));
+            snacks.push({ id: newId, name, image: pendingSnackImage, emoji: '', price: normalizedPrice, sellPrice: normalizedPrice, costPrice: normalizedCostPrice, totalSold: 0, category, stock });
             const newSnack = snacks.find(s => s.id === newId);
             saveSnacks();
             if (newSnack) {
@@ -481,7 +700,7 @@
                     void flushStateSync();
                 }
             }
-            addAuditLog('snack.create', `เพิ่มสินค้า ${name}`, { id: newId, price, costPrice, stock });
+            addAuditLog('snack.create', `เพิ่มสินค้า ${name}`, { id: newId, price: normalizedPrice, costPrice: normalizedCostPrice, category, stock });
             renderManageSnackList();
             renderSnackGrid();
             refreshProfitTabIfVisible();
@@ -498,8 +717,9 @@
             if (!snack) return;
 
             const name = document.getElementById('newSnackName').value.trim();
-            const price = parseInt(document.getElementById('newSnackPrice').value);
-            const costPrice = parseInt(document.getElementById('newSnackCost').value) || 0;
+            const price = Number(document.getElementById('newSnackPrice').value);
+            const costPrice = Number(document.getElementById('newSnackCost').value) || 0;
+            const category = normalizeSnackCategory(document.getElementById('newSnackCategory').value, name);
             const stock = parseInt(document.getElementById('newSnackStock').value);
             const oldPrice = Number(snack.price) || 0;
 
@@ -509,9 +729,12 @@
             if (!Number.isFinite(stock) || stock < 0) { showToast('⚠️ กรุณาใส่จำนวนที่ถูกต้อง', 'warning'); return; }
 
             snack.name = name;
-            snack.price = price;
-            snack.sellPrice = price;
-            snack.costPrice = costPrice;
+            const normalizedPrice = Number(price.toFixed(2));
+            const normalizedCostPrice = Number(costPrice.toFixed(2));
+            snack.price = normalizedPrice;
+            snack.sellPrice = normalizedPrice;
+            snack.costPrice = normalizedCostPrice;
+            snack.category = category;
             snack.stock = stock;
 
             if (pendingSnackImage) {
@@ -524,14 +747,14 @@
             if (!ok) {
                 void flushStateSync();
             }
-            if (oldPrice !== price) {
+            if (oldPrice !== normalizedPrice) {
                 addAuditLog(
                     'snack.price.change',
-                    `เปลี่ยนราคา ${name}: ${oldPrice} -> ${price} บาท`,
-                    { id, oldPrice, newPrice: price }
+                    `เปลี่ยนราคา ${name}: ${oldPrice.toFixed(2)} -> ${normalizedPrice.toFixed(2)} บาท`,
+                    { id, oldPrice, newPrice: normalizedPrice }
                 );
             }
-            addAuditLog('snack.update', `แก้ไขสินค้า ${name}`, { id, price, costPrice, stock });
+            addAuditLog('snack.update', `แก้ไขสินค้า ${name}`, { id, price: normalizedPrice, costPrice: normalizedCostPrice, category, stock });
             renderManageSnackList();
             renderSnackGrid();
             resetSnackForm();

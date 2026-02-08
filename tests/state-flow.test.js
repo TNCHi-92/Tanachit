@@ -11,7 +11,7 @@ async function run() {
   try {
     const state = {
       snacks: [
-        { id: 1, name: 'มาม่า', price: 7, costPrice: 5, stock: 48, emoji: '🍜' }
+        { id: 1, name: 'มาม่า', price: 7, costPrice: 5, stock: 48, emoji: '🍜', category: 'snack' }
       ],
       customers: [{ name: 'เอ', shift: 'A' }],
       users: [{ id: 1, displayName: 'Admin', aliases: ['admin'], role: 'admin' }],
@@ -42,6 +42,30 @@ async function run() {
     const getJson = await getRes.json();
     assert.ok(getJson.state, 'state should exist');
     assert.equal(getJson.state.snacks[0].name, 'มาม่า');
+    assert.equal(getJson.state.snacks[0].category, 'snack');
+
+    const upsertSnackRes = await fetch(`${BASE}/api/snacks/1`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        snack: {
+          id: 1,
+          name: 'มาม่า',
+          price: 20,
+          sellPrice: 20,
+          costPrice: 5,
+          stock: 47,
+          category: 'ice_cream'
+        }
+      })
+    });
+    assert.equal(upsertSnackRes.status, 200, 'PUT /api/snacks/:id should return 200');
+
+    const getAfterUpsertRes = await fetch(`${BASE}/api/state`);
+    assert.equal(getAfterUpsertRes.status, 200, 'GET /api/state after upsert should return 200');
+    const getAfterUpsertJson = await getAfterUpsertRes.json();
+    assert.equal(getAfterUpsertJson.state.snacks[0].price, 20);
+    assert.equal(getAfterUpsertJson.state.snacks[0].category, 'ice_cream');
 
     const reportRes = await fetch(`${BASE}/api/report/monthly?month=2026-02`);
     assert.equal(reportRes.status, 200, 'GET /api/report/monthly should return 200');

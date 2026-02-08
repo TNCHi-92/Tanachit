@@ -56,8 +56,8 @@
         </header>
 
         <div class="card">
-            <h2 class="card-title">เลือกขนมที่ต้องการ</h2>
-            <div class="snack-grid" id="snackGrid"></div>
+            <h2 class="card-title">เลือกสินค้าที่ต้องการ</h2>
+            <div class="snack-groups" id="snackGrid"></div>
 
             <div class="summary-card">
                 <div class="summary-title">📋 สรุปวันนี้</div>
@@ -107,8 +107,12 @@
                         <button type="button" class="btn-clipboard" onclick="pasteImageFromClipboard()">วางจาก Ctrl+V</button>
                     </div>
                     <input type="text" id="newSnackName" placeholder="ชื่อสินค้า">
-                    <input type="number" id="newSnackPrice" placeholder="ราคา" min="1" style="max-width: 100px;">
-                    <input type="number" id="newSnackCost" placeholder="ทุน" min="0" style="max-width: 100px;">
+                    <input type="number" id="newSnackPrice" placeholder="ราคา" min="1" step="0.01" onblur="formatSnackMoneyInput('newSnackPrice')" style="max-width: 100px;">
+                    <input type="number" id="newSnackCost" placeholder="ทุน" min="0" step="0.01" onblur="formatSnackMoneyInput('newSnackCost')" style="max-width: 100px;">
+                    <select id="newSnackCategory" style="padding: 12px 16px; border: 2px solid var(--border); border-radius: 10px; font-family: 'Prompt', sans-serif; font-size: 0.95rem; min-width: 140px;">
+                        <option value="snack">🍪 ขนม</option>
+                        <option value="ice_cream">🍦 ตู้เย็น</option>
+                    </select>
                     <input type="number" id="newSnackStock" placeholder="จำนวน" min="0" style="max-width: 100px;">
                     <button class="btn btn-primary" id="saveSnackBtn" onclick="addOrUpdateSnack()">+ เพิ่ม</button>
                     <button class="btn btn-outline" id="cancelEditSnackBtn" onclick="cancelEditSnack()" style="display: none;">ยกเลิก</button>
@@ -150,6 +154,10 @@
                 <div class="card" style="margin-top: 15px; padding: 20px;">
                     <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 12px; color: var(--text-dark);">สินค้าขายดี (Top 5)</h4>
                     <div id="bestSellerList" class="customer-detail-list"></div>
+                </div>
+                <div class="card" style="margin-top: 15px; padding: 20px;">
+                    <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 12px; color: var(--text-dark);">สินค้าขายไม่ดี (Top 5)</h4>
+                    <div id="worstSellerList" class="customer-detail-list"></div>
                 </div>
                 <div class="card" style="margin-top: 15px; padding: 20px;">
                     <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 12px; color: var(--text-dark);">Audit Log</h4>

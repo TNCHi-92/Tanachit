@@ -75,7 +75,6 @@ function normalizePurchase(purchase, idx) {
     snackId: snack?.id !== null && snack?.id !== undefined ? toInt(snack.id, null) : null,
     snackName: toText(snack?.name, "Unknown"),
     snackEmoji: snack?.emoji ? toText(snack.emoji) : null,
-    snackImage: snack?.image ? toText(snack.image) : null,
     snackStock: snack?.stock !== null && snack?.stock !== undefined ? toInt(snack.stock, null) : null,
     price: toInt(purchase?.price ?? snack?.price, 0),
     purchasedAt: new Date(purchase?.date || Date.now()).toISOString()
@@ -121,6 +120,7 @@ async function ensureSchema(sql) {
         purchased_at TIMESTAMPTZ NOT NULL
       )
     `;
+    await sql`UPDATE purchases SET snack_image = NULL WHERE snack_image IS NOT NULL`;
     await sql`CREATE INDEX IF NOT EXISTS idx_purchases_purchased_at ON purchases (purchased_at DESC)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_purchases_customer ON purchases (customer_name)`;
   })();
@@ -133,7 +133,7 @@ async function readState(sql) {
     sql`SELECT name, shift FROM customers ORDER BY shift ASC, name ASC`,
     sql`SELECT id, display_name, aliases FROM users ORDER BY id ASC`,
     sql`
-      SELECT id, customer_name, snack_id, snack_name, snack_emoji, snack_image, snack_stock, price, purchased_at
+      SELECT id, customer_name, snack_id, snack_name, snack_emoji, snack_stock, price, purchased_at
       FROM purchases
       ORDER BY purchased_at DESC, id DESC
     `
@@ -163,7 +163,7 @@ async function readState(sql) {
           id: r.snack_id !== null ? Number(r.snack_id) : null,
           name: r.snack_name,
           emoji: r.snack_emoji,
-          image: r.snack_image,
+          image: null,
           stock: r.snack_stock !== null ? Number(r.snack_stock) : null,
           price: Number(r.price)
         },
@@ -217,7 +217,7 @@ async function writeState(sql, input) {
           id, customer_name, snack_id, snack_name, snack_emoji, snack_image, snack_stock, price, purchased_at
         ) VALUES (
           ${p.id}, ${p.customerName}, ${p.snackId}, ${p.snackName}, ${p.snackEmoji},
-          ${p.snackImage}, ${p.snackStock}, ${p.price}, ${p.purchasedAt}::timestamptz
+          ${null}, ${p.snackStock}, ${p.price}, ${p.purchasedAt}::timestamptz
         )
       `
     );

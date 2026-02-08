@@ -40,6 +40,48 @@ function getMonthRange(reportMonth) {
     return { year, month, monthStart, monthEnd };
 }
 
+function buildCustomerBilling(monthlyPurchases) {
+    const customerBilling = {};
+    monthlyPurchases.forEach((purchase) => {
+        const customerName = purchase.customerName || 'ไม่ระบุชื่อ';
+        const qty = getQty(purchase);
+        const unitPrice = getUnitPrice(purchase);
+        const lineRevenue = qty * unitPrice;
+        const snackName = getSnackName(purchase);
+
+        if (!customerBilling[customerName]) {
+            customerBilling[customerName] = {
+                total: 0,
+                count: 0,
+                items: {}
+            };
+        }
+
+        const row = customerBilling[customerName];
+        row.total += lineRevenue;
+        row.count += qty;
+
+        if (!row.items[snackName]) {
+            row.items[snackName] = { qty: 0, total: 0 };
+        }
+        row.items[snackName].qty += qty;
+        row.items[snackName].total += lineRevenue;
+    });
+    return customerBilling;
+}
+
+function formatCustomerItemsLine(customerData, maxItems = 3) {
+    const entries = Object.entries(customerData?.items || {})
+        .sort((a, b) => b[1].total - a[1].total);
+    if (entries.length === 0) return 'ยังไม่มีรายการสินค้า';
+
+    const shown = entries.slice(0, maxItems)
+        .map(([snackName, item]) => `${snackName} x${item.qty} (${item.total} ฿)`)
+        .join(' • ');
+    if (entries.length <= maxItems) return shown;
+    return `${shown} • +${entries.length - maxItems} รายการ`;
+}
+
 function collectProductRowsFromPurchases(sourcePurchases) {
     const rowsByProduct = new Map();
     sourcePurchases.forEach((purchase) => {
@@ -197,17 +239,7 @@ function generateReport() {
     const totalStock = snacks.reduce((sum, item) => sum + (Number(item.stock) || 0), 0);
     const soldPiecesThisMonth = monthlyProductRows.reduce((sum, row) => sum + row.soldQty, 0);
 
-    const customerBilling = {};
-    monthlyPurchases.forEach((purchase) => {
-        const customerName = purchase.customerName || 'ไม่ระบุชื่อ';
-        const qty = getQty(purchase);
-        const lineRevenue = qty * getUnitPrice(purchase);
-        if (!customerBilling[customerName]) {
-            customerBilling[customerName] = { total: 0, count: 0 };
-        }
-        customerBilling[customerName].total += lineRevenue;
-        customerBilling[customerName].count += qty;
-    });
+    const customerBilling = buildCustomerBilling(monthlyPurchases);
 
     const sellOutForecast = snacks.map((item) => {
         const stock = Number(item.stock) || 0;
@@ -271,6 +303,9 @@ function generateReport() {
                             <div class="customer-detail-info">
                                 <span>ซื้อ ${data.count} ชิ้น</span>
                                 <span>เฉลี่ย ${(data.total / Math.max(1, data.count)).toFixed(2)} &#3647;/ชิ้น</span>
+                            </div>
+                            <div class="customer-detail-info">
+                                <span>รายการ: ${formatCustomerItemsLine(data, 3)}</span>
                             </div>
                             <div class="qr-container">
                                 <button class="btn btn-secondary" style="width: 100%;" onclick="generateQRFromEncoded('${encodeURIComponent(name)}', ${data.total})">
@@ -390,17 +425,7 @@ function exportReport() {
     const monthlyCost = monthlyProductRows.reduce((sum, row) => sum + row.cost, 0);
     const monthlyProfit = monthlyRevenue - monthlyCost;
 
-    const customerBilling = {};
-    monthlyPurchases.forEach((purchase) => {
-        const customerName = purchase.customerName || 'ไม่ระบุชื่อ';
-        const qty = getQty(purchase);
-        const lineRevenue = qty * getUnitPrice(purchase);
-        if (!customerBilling[customerName]) {
-            customerBilling[customerName] = { total: 0, count: 0 };
-        }
-        customerBilling[customerName].total += lineRevenue;
-        customerBilling[customerName].count += qty;
-    });
+    const customerBilling = buildCustomerBilling(monthlyPurchases);
 
     const sellOutForecast = snacks.map((item) => {
         const stock = Number(item.stock) || 0;
@@ -424,6 +449,11 @@ function exportReport() {
         .sort((a, b) => b[1].total - a[1].total)
         .forEach(([name, data]) => {
             reportText += `${name}: total=${data.total} THB, qty=${data.count}\n`;
+            Object.entries(data.items || {})
+                .sort((a, b) => b[1].total - a[1].total)
+                .forEach(([snackName, item]) => {
+                    reportText += `  - ${snackName}: qty=${item.qty}, amount=${item.total} THB\n`;
+                });
         });
     reportText += '\n';
 
