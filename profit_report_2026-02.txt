@@ -1,0 +1,27 @@
+=== Profit report กุมภาพันธ์ 2569 ===
+
+Monthly revenue: 35 THB
+Monthly cost: 15 THB
+Monthly profit: 20 THB
+Transactions: 4
+Potential profit if all stock sold: 5481 THB
+
+--- Customer billing (sell price) ---
+ธนชิต: total=28 THB, qty=3
+วุฒิชัย: total=7 THB, qty=1
+
+--- Sell-out forecast by product ---
+เลย์: stock=40, profit/unit=20 THB, total=800 THB
+กาแฟ: stock=30, profit/unit=25 THB, total=750 THB
+น้ำดื่ม: stock=100, profit/unit=7 THB, total=700 THB
+โคคา: stock=30, profit/unit=15 THB, total=450 THB
+ช็อคโกแลต: stock=15, profit/unit=30 THB, total=450 THB
+คุกกี้: stock=20, profit/unit=18 THB, total=360 THB
+ไอศกรีม: stock=10, profit/unit=35 THB, total=350 THB
+มาม่าคัพ: stock=48, profit/unit=7 THB, total=336 THB
+ขนมอบ: stock=15, profit/unit=22 THB, total=330 THB
+ปลากราบ: stock=30, profit/unit=10 THB, total=300 THB
+ขนมปัง: stock=25, profit/unit=12 THB, total=300 THB
+นม: stock=20, profit/unit=15 THB, total=300 THB
+เลย์: stock=9, profit/unit=5 THB, total=45 THB
+เทสโต: stock=10, profit/unit=1 THB, total=10 THB

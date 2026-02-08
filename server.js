@@ -1,4 +1,5 @@
 const path = require("path");
+const fs = require("fs");
 const express = require("express");
 const dotenv = require("dotenv");
 const { Pool } = require("pg");
@@ -8,10 +9,15 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 const dbUrl = process.env.DATABASE_URL;
+const startedAt = Date.now();
+const appVersion = "1.1.0";
+const backupDir = process.env.BACKUP_DIR ? path.resolve(process.env.BACKUP_DIR) : null;
+const backupIntervalMin = Number(process.env.BACKUP_INTERVAL_MIN || 0);
 
 app.use(express.json({ limit: "25mb" }));
 
 let pool = null;
+let fallbackState = sanitizeState({});
 if (dbUrl) {
   pool = new Pool({
     connectionString: dbUrl,
@@ -46,7 +52,19 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS users (
       id BIGINT PRIMARY KEY,
       display_name TEXT NOT NULL,
-      aliases JSONB NOT NULL DEFAULT '[]'::jsonb
+      aliases JSONB NOT NULL DEFAULT '[]'::jsonb,
+      role TEXT NOT NULL DEFAULT 'staff'
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      action TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      actor_id BIGINT,
+      actor_name TEXT NOT NULL,
+      actor_role TEXT NOT NULL DEFAULT 'staff',
+      meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS purchases (
@@ -78,6 +96,9 @@ async function initDb() {
   `);
 
   await pool.query(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'staff';
+    UPDATE users SET role = 'staff' WHERE role IS NULL OR role = '';
+
     ALTER TABLE snacks ADD COLUMN IF NOT EXISTS cost_price INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE snacks ADD COLUMN IF NOT EXISTS sell_price INTEGER NOT NULL DEFAULT 0;
     UPDATE snacks SET sell_price = price WHERE sell_price = 0;
@@ -103,7 +124,8 @@ function sanitizeState(input) {
     snacks: Array.isArray(data.snacks) ? data.snacks : [],
     customers: Array.isArray(data.customers) ? data.customers : [],
     purchases: Array.isArray(data.purchases) ? data.purchases : [],
-    users: Array.isArray(data.users) ? data.users : []
+    users: Array.isArray(data.users) ? data.users : [],
+    auditLogs: Array.isArray(data.auditLogs) ? data.auditLogs : []
   };
 }
 
@@ -146,12 +168,72 @@ function normalizeUser(user, idx) {
   const aliases = Array.isArray(user?.aliases)
     ? user.aliases.map((v) => asString(v).trim()).filter(Boolean)
     : [];
+  const role = user?.role === "admin" ? "admin" : "staff";
 
   return {
     id: asInt(user?.id, idx + 1),
     displayName: asString(user?.displayName, `User ${idx + 1}`),
-    aliases
+    aliases,
+    role
   };
+}
+
+function ensureAtLeastOneAdmin(users) {
+  if (!Array.isArray(users) || users.length === 0) return users;
+  if (users.some((u) => u?.role === "admin")) return users;
+  const cloned = users.map((u) => ({ ...u }));
+  cloned[0].role = "admin";
+  return cloned;
+}
+
+function normalizeAuditLog(row, idx) {
+  return {
+    id: asString(row?.id, `${Date.now()}_${idx}`),
+    action: asString(row?.action, "unknown.action").slice(0, 80),
+    detail: asString(row?.detail, "").slice(0, 400),
+    actorId: row?.actorId !== undefined && row?.actorId !== null ? asInt(row.actorId, null) : null,
+    actorName: asString(row?.actorName, "Unknown").slice(0, 80),
+    actorRole: row?.actorRole === "admin" ? "admin" : "staff",
+    meta: row?.meta && typeof row.meta === "object" ? row.meta : {},
+    at: new Date(row?.at || Date.now()).toISOString()
+  };
+}
+
+function validateState(state) {
+  const errors = [];
+  if (state.snacks.length > 3000) errors.push("snacks exceeds limit");
+  if (state.customers.length > 10000) errors.push("customers exceeds limit");
+  if (state.users.length > 1000) errors.push("users exceeds limit");
+  if (state.purchases.length > 200000) errors.push("purchases exceeds limit");
+  if (state.auditLogs.length > 200000) errors.push("auditLogs exceeds limit");
+
+  state.snacks.forEach((s, i) => {
+    if (!asString(s?.name).trim()) errors.push(`snacks[${i}] name is required`);
+    if (asInt(s?.price, 0) < 0) errors.push(`snacks[${i}] price must be >= 0`);
+    if (asInt(s?.stock, 0) < 0) errors.push(`snacks[${i}] stock must be >= 0`);
+    if (asInt(s?.costPrice, 0) < 0) errors.push(`snacks[${i}] costPrice must be >= 0`);
+  });
+
+  state.customers.forEach((c, i) => {
+    const shift = asString(c?.shift, "").toUpperCase();
+    if (!asString(c?.name).trim()) errors.push(`customers[${i}] name is required`);
+    if (!["A", "B", "C", "D"].includes(shift)) errors.push(`customers[${i}] shift invalid`);
+  });
+
+  state.users.forEach((u, i) => {
+    if (!asString(u?.displayName).trim()) errors.push(`users[${i}] displayName is required`);
+    if (u?.role && !["admin", "staff"].includes(u.role)) errors.push(`users[${i}] role invalid`);
+  });
+  if (state.users.length > 0 && !state.users.some((u) => u?.role === "admin")) {
+    errors.push("at least one admin user is required");
+  }
+
+  state.purchases.forEach((p, i) => {
+    if (!asString(p?.customerName).trim()) errors.push(`purchases[${i}] customerName is required`);
+    if (asInt(p?.price, 0) < 0) errors.push(`purchases[${i}] price must be >= 0`);
+  });
+
+  return errors;
 }
 
 function normalizePurchase(purchase, idx) {
@@ -186,9 +268,11 @@ function normalizePurchase(purchase, idx) {
 async function writeStateTx(client, state) {
   const snacks = state.snacks.map(normalizeSnack);
   const customers = state.customers.map(normalizeCustomer).filter((c) => c.name);
-  const users = state.users.map(normalizeUser);
+  const users = ensureAtLeastOneAdmin(state.users).map(normalizeUser);
   const purchases = state.purchases.map(normalizePurchase);
+  const auditLogs = state.auditLogs.map(normalizeAuditLog).slice(0, 200000);
 
+  await client.query("DELETE FROM audit_logs");
   await client.query("DELETE FROM purchases");
   await client.query("DELETE FROM users");
   await client.query("DELETE FROM customers");
@@ -210,8 +294,8 @@ async function writeStateTx(client, state) {
 
   for (const user of users) {
     await client.query(
-      "INSERT INTO users (id, display_name, aliases) VALUES ($1, $2, $3::jsonb)",
-      [user.id, user.displayName, JSON.stringify(user.aliases)]
+      "INSERT INTO users (id, display_name, aliases, role) VALUES ($1, $2, $3::jsonb, $4)",
+      [user.id, user.displayName, JSON.stringify(user.aliases), user.role]
     );
   }
 
@@ -242,19 +326,37 @@ async function writeStateTx(client, state) {
       ]
     );
   }
+
+  for (const row of auditLogs) {
+    await client.query(
+      `
+      INSERT INTO audit_logs (id, action, detail, actor_id, actor_name, actor_role, meta, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz)
+      `,
+      [row.id, row.action, row.detail, row.actorId, row.actorName, row.actorRole, JSON.stringify(row.meta), row.at]
+    );
+  }
 }
 
 async function readState() {
-  const [snackRes, customerRes, userRes, purchaseRes] = await Promise.all([
+  const [snackRes, customerRes, userRes, purchaseRes, auditRes] = await Promise.all([
     pool.query("SELECT id, name, emoji, image, price, cost_price, sell_price, stock FROM snacks ORDER BY id ASC"),
     pool.query("SELECT name, shift FROM customers ORDER BY shift ASC, name ASC"),
-    pool.query("SELECT id, display_name, aliases FROM users ORDER BY id ASC"),
+    pool.query("SELECT id, display_name, aliases, role FROM users ORDER BY id ASC"),
     pool.query(
       `
       SELECT id, customer_name, snack_id, snack_name, snack_emoji, snack_image, snack_stock, price,
              qty, unit_cost, unit_price, line_revenue, line_cost, line_profit, purchased_at
       FROM purchases
       ORDER BY purchased_at DESC, id DESC
+      `
+    ),
+    pool.query(
+      `
+      SELECT id, action, detail, actor_id, actor_name, actor_role, meta, created_at
+      FROM audit_logs
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1000
       `
     )
   ]);
@@ -277,7 +379,8 @@ async function readState() {
     users: userRes.rows.map((r) => ({
       id: Number(r.id),
       displayName: r.display_name,
-      aliases: Array.isArray(r.aliases) ? r.aliases : []
+      aliases: Array.isArray(r.aliases) ? r.aliases : [],
+      role: r.role === "admin" ? "admin" : "staff"
     })),
     purchases: purchaseRes.rows.map((r) => {
       const parsedId = Number(r.id);
@@ -303,7 +406,17 @@ async function readState() {
         price: Number(r.price),
         date: new Date(r.purchased_at).toISOString()
       };
-    })
+    }),
+    auditLogs: auditRes.rows.map((r) => ({
+      id: r.id,
+      action: r.action,
+      detail: r.detail,
+      actorId: r.actor_id !== null ? Number(r.actor_id) : null,
+      actorName: r.actor_name,
+      actorRole: r.actor_role === "admin" ? "admin" : "staff",
+      meta: r.meta && typeof r.meta === "object" ? r.meta : {},
+      at: new Date(r.created_at).toISOString()
+    }))
   };
 }
 
@@ -313,14 +426,16 @@ async function hasAnyNormalizedData() {
       (SELECT COUNT(*) FROM snacks)::int AS snacks_count,
       (SELECT COUNT(*) FROM customers)::int AS customers_count,
       (SELECT COUNT(*) FROM users)::int AS users_count,
-      (SELECT COUNT(*) FROM purchases)::int AS purchases_count
+      (SELECT COUNT(*) FROM purchases)::int AS purchases_count,
+      (SELECT COUNT(*) FROM audit_logs)::int AS audit_logs_count
   `);
   const counts = rows[0];
   return (
     counts.snacks_count > 0 ||
     counts.customers_count > 0 ||
     counts.users_count > 0 ||
-    counts.purchases_count > 0
+    counts.purchases_count > 0 ||
+    counts.audit_logs_count > 0
   );
 }
 
@@ -345,12 +460,97 @@ async function migrateLegacyStateIfNeeded() {
   }
 }
 
+function getMonthlyReport(state, monthText) {
+  const [y, m] = asString(monthText).split("-").map((v) => Number(v));
+  if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) {
+    return { error: "Invalid month format, expected YYYY-MM" };
+  }
+  const from = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
+  const to = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999));
+
+  const monthlyPurchases = state.purchases.filter((p) => {
+    const dt = new Date(p.date || p.purchasedAt || Date.now());
+    return dt >= from && dt <= to;
+  });
+
+  const billingByCustomer = {};
+  const productTotals = {};
+  let revenue = 0;
+  let cost = 0;
+
+  for (const p of monthlyPurchases) {
+    const name = asString(p.customerName, "Unknown");
+    const itemName = asString(p?.snack?.name || p.snackName, "Unknown");
+    const unitPrice = Math.max(0, asInt(p.unitPrice ?? p.price, 0));
+    const unitCost = Math.max(0, asInt(p.unitCost ?? p?.snack?.costPrice, 0));
+    const qty = Math.max(1, asInt(p.qty, 1));
+    const lineRevenue = qty * unitPrice;
+    const lineCost = qty * unitCost;
+
+    revenue += lineRevenue;
+    cost += lineCost;
+
+    if (!billingByCustomer[name]) billingByCustomer[name] = { total: 0, qty: 0 };
+    billingByCustomer[name].total += lineRevenue;
+    billingByCustomer[name].qty += qty;
+
+    if (!productTotals[itemName]) productTotals[itemName] = { soldQty: 0, revenue: 0, cost: 0 };
+    productTotals[itemName].soldQty += qty;
+    productTotals[itemName].revenue += lineRevenue;
+    productTotals[itemName].cost += lineCost;
+  }
+
+  const bestSellers = Object.entries(productTotals)
+    .map(([name, d]) => ({ name, soldQty: d.soldQty, revenue: d.revenue, cost: d.cost, profit: d.revenue - d.cost }))
+    .sort((a, b) => b.soldQty - a.soldQty);
+
+  return {
+    month: `${y}-${String(m).padStart(2, "0")}`,
+    summary: {
+      transactions: monthlyPurchases.length,
+      revenue,
+      cost,
+      profit: revenue - cost,
+      marginPct: revenue > 0 ? Number((((revenue - cost) / revenue) * 100).toFixed(2)) : 0
+    },
+    billingByCustomer,
+    bestSellers
+  };
+}
+
+async function dumpBackupFile(state, reason = "manual") {
+  if (!backupDir) return null;
+  await fs.promises.mkdir(backupDir, { recursive: true });
+  const now = new Date();
+  const stamp = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}_${String(now.getUTCHours()).padStart(2, "0")}${String(now.getUTCMinutes()).padStart(2, "0")}${String(now.getUTCSeconds()).padStart(2, "0")}`;
+  const fileName = `snack-backup-${reason}-${stamp}.json`;
+  const filePath = path.join(backupDir, fileName);
+  const payload = { createdAt: now.toISOString(), reason, state };
+  await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2), "utf8");
+  return filePath;
+}
+
 app.get("/api/health", async (_req, res) => {
-  if (!pool) return res.json({ ok: true, db: false });
+  if (!pool) {
+    return res.json({
+      ok: true,
+      db: false,
+      mode: "memory",
+      uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
+      version: appVersion
+    });
+  }
 
   try {
     const { rows } = await pool.query("SELECT NOW() AS now");
-    res.json({ ok: true, db: true, now: rows[0].now });
+    res.json({
+      ok: true,
+      db: true,
+      now: rows[0].now,
+      mode: "postgres",
+      uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
+      version: appVersion
+    });
   } catch (_error) {
     res.status(500).json({ ok: false, db: false });
   }
@@ -358,7 +558,9 @@ app.get("/api/health", async (_req, res) => {
 
 app.get("/api/state", async (_req, res) => {
   if (!pool) {
-    return res.status(503).json({ error: "DATABASE_URL is not configured" });
+    const state = sanitizeState(fallbackState);
+    const hasData = state.snacks.length || state.customers.length || state.users.length || state.purchases.length || state.auditLogs.length;
+    return res.json({ state: hasData ? state : null, mode: "memory" });
   }
 
   try {
@@ -367,20 +569,28 @@ app.get("/api/state", async (_req, res) => {
       state.snacks.length ||
       state.customers.length ||
       state.users.length ||
-      state.purchases.length;
-    return res.json({ state: hasData ? state : null });
+      state.purchases.length ||
+      state.auditLogs.length;
+    return res.json({ state: hasData ? state : null, mode: "postgres" });
   } catch (error) {
     return res.status(500).json({ error: "Failed to read state" });
   }
 });
 
 app.put("/api/state", async (req, res) => {
-  if (!pool) {
-    return res.status(503).json({ error: "DATABASE_URL is not configured" });
-  }
-
   try {
     const state = sanitizeState(req.body?.state);
+    state.users = ensureAtLeastOneAdmin(state.users);
+    const errors = validateState(state);
+    if (errors.length > 0) {
+      return res.status(400).json({ error: "Validation failed", details: errors.slice(0, 20) });
+    }
+
+    if (!pool) {
+      fallbackState = state;
+      return res.json({ ok: true, mode: "memory" });
+    }
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -393,9 +603,44 @@ app.put("/api/state", async (req, res) => {
       client.release();
     }
 
-    return res.json({ ok: true });
+    return res.json({ ok: true, mode: "postgres" });
   } catch (error) {
     return res.status(500).json({ error: "Failed to write state" });
+  }
+});
+
+app.get("/api/report/monthly", async (req, res) => {
+  try {
+    const month = asString(req.query.month, "");
+    if (!month) return res.status(400).json({ error: "month is required (YYYY-MM)" });
+
+    const state = !pool ? sanitizeState(fallbackState) : await readState();
+    const report = getMonthlyReport(state, month);
+    if (report.error) return res.status(400).json({ error: report.error });
+    return res.json({ ok: true, report });
+  } catch (_error) {
+    return res.status(500).json({ error: "Failed to generate report" });
+  }
+});
+
+app.get("/api/audit", async (req, res) => {
+  try {
+    const limit = Math.min(500, Math.max(1, asInt(req.query.limit, 100)));
+    const state = !pool ? sanitizeState(fallbackState) : await readState();
+    const logs = Array.isArray(state.auditLogs) ? state.auditLogs.slice(0, limit) : [];
+    return res.json({ ok: true, logs });
+  } catch (_error) {
+    return res.status(500).json({ error: "Failed to read audit logs" });
+  }
+});
+
+app.get("/api/backup", async (_req, res) => {
+  try {
+    const state = !pool ? sanitizeState(fallbackState) : await readState();
+    const filePath = await dumpBackupFile(state, "manual");
+    return res.json({ ok: true, saved: Boolean(filePath), filePath: filePath || null, state });
+  } catch (_error) {
+    return res.status(500).json({ error: "Failed to create backup" });
   }
 });
 
@@ -414,13 +659,32 @@ app.get("/", (_req, res) => {
   res.sendFile(path.join(process.cwd(), "pro.html"));
 });
 
-initDb()
-  .then(() => {
-    app.listen(port, () => {
-      console.log(`Snack tracker server running on http://localhost:${port}`);
+if (backupDir && backupIntervalMin > 0) {
+  setInterval(async () => {
+    try {
+      const state = !pool ? sanitizeState(fallbackState) : await readState();
+      await dumpBackupFile(state, "auto");
+    } catch (error) {
+      console.error("Auto backup failed:", error.message);
+    }
+  }, backupIntervalMin * 60 * 1000);
+}
+
+async function startServer(listenPort = port) {
+  await initDb();
+  return new Promise((resolve) => {
+    const server = app.listen(listenPort, () => {
+      console.log(`Snack tracker server running on http://localhost:${listenPort}`);
+      resolve(server);
     });
-  })
-  .catch((error) => {
+  });
+}
+
+if (require.main === module) {
+  startServer().catch((error) => {
     console.error("Failed to initialize database:", error.message);
     process.exit(1);
   });
+}
+
+module.exports = { app, startServer };

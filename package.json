@@ -5,7 +5,8 @@
   "description": "Snack tracker with Neon Postgres state sync",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node tests/state-flow.test.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
