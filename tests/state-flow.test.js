@@ -76,6 +76,23 @@ async function run() {
     assert.equal(reportJson.report.billingByCustomer['เอ'].total, 14);
     assert.equal(reportJson.report.bestSellers[0].name, 'มาม่า');
 
+    const settledState = structuredClone(getAfterUpsertJson.state);
+    settledState.purchases[0].settledAt = '2026-02-08T13:00:00.000Z';
+    const putSettledRes = await fetch(`${BASE}/api/state`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state: settledState })
+    });
+    assert.equal(putSettledRes.status, 200, 'PUT /api/state with settledAt should return 200');
+
+    const reportAfterSettleRes = await fetch(`${BASE}/api/report/monthly?month=2026-02`);
+    assert.equal(reportAfterSettleRes.status, 200, 'GET /api/report/monthly after settle should return 200');
+    const reportAfterSettleJson = await reportAfterSettleRes.json();
+    assert.equal(reportAfterSettleJson.report.summary.revenue, 14);
+    assert.equal(reportAfterSettleJson.report.summary.cost, 10);
+    assert.equal(reportAfterSettleJson.report.summary.profit, 4);
+    assert.equal(reportAfterSettleJson.report.billingByCustomer['เอ'], undefined, 'settled purchases should not appear in billingByCustomer');
+
     const auditRes = await fetch(`${BASE}/api/audit?limit=10`);
     assert.equal(auditRes.status, 200, 'GET /api/audit should return 200');
     const auditJson = await auditRes.json();

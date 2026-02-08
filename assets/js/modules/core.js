@@ -755,7 +755,8 @@
                         revenue: unitPrice,
                         cost: unitCost,
                         profit: unitProfit,
-                        date: now
+                        date: now,
+                        settledAt: null
                     });
                 }
             });
@@ -876,6 +877,10 @@
                     const profit = Number.isFinite(Number(p.profit))
                         ? Number(p.profit)
                         : (unitPrice - unitCost);
+                    const settledDate = p?.settledAt ? new Date(p.settledAt) : null;
+                    const normalizedSettledAt = settledDate && !Number.isNaN(settledDate.getTime())
+                        ? settledDate.toISOString()
+                        : null;
                     const snackRef = p?.snack && typeof p.snack === 'object'
                         ? {
                             id: p.snack.id ?? null,
@@ -904,7 +909,8 @@
                         unitCost,
                         revenue: Number(p.revenue ?? unitPrice) || 0,
                         cost: Number(p.cost ?? unitCost) || 0,
-                        profit
+                        profit,
+                        settledAt: normalizedSettledAt
                     };
                 });
             }

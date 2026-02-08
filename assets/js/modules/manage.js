@@ -50,9 +50,11 @@
             monthlyPurchases.forEach(p => {
                 const snackId = p?.snack?.id ?? p?.snack?.name ?? 'unknown';
                 const snackName = p?.snack?.name || 'Unknown';
-                const sell = Number(p.unitPrice ?? p.price) || 0;
-                const cost = Number(p.unitCost ?? p.snack?.costPrice) || 0;
-                const profit = Number.isFinite(Number(p.profit)) ? Number(p.profit) : (sell - cost);
+                const sell = toMoneyNumber(p.unitPrice ?? p.price);
+                const cost = toMoneyNumber(p.unitCost ?? p.snack?.costPrice);
+                const profit = Number.isFinite(Number(p.profit))
+                    ? toMoneyNumber(p.profit)
+                    : toMoneyNumber(sell - cost);
 
                 if (!rowsByProduct.has(snackId)) {
                     rowsByProduct.set(snackId, {
@@ -65,9 +67,9 @@
                 }
                 const row = rowsByProduct.get(snackId);
                 row.soldQty += 1;
-                row.revenue += sell;
-                row.cost += cost;
-                row.profit += profit;
+                row.revenue = toMoneyNumber(row.revenue + sell);
+                row.cost = toMoneyNumber(row.cost + cost);
+                row.profit = toMoneyNumber(row.profit + profit);
             });
 
             const rows = Array.from(rowsByProduct.values())
@@ -77,37 +79,52 @@
                 }))
                 .sort((a, b) => b.profit - a.profit);
 
-            const totalRevenue = rows.reduce((sum, r) => sum + r.revenue, 0);
-            const totalCost = rows.reduce((sum, r) => sum + r.cost, 0);
-            const totalProfit = rows.reduce((sum, r) => sum + r.profit, 0);
+            const totalRevenue = rows.reduce((sum, r) => toMoneyNumber(sum + r.revenue), 0);
+            const totalCost = rows.reduce((sum, r) => toMoneyNumber(sum + r.cost), 0);
+            const totalProfit = rows.reduce((sum, r) => toMoneyNumber(sum + r.profit), 0);
             const totalSoldQty = rows.reduce((sum, r) => sum + r.soldQty, 0);
             const totalMarginPct = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+            const stockCostRows = snacks
+                .map((s) => {
+                    const stock = Math.max(0, Number(s?.stock) || 0);
+                    const costPrice = Math.max(0, toMoneyNumber(s?.costPrice));
+                    const stockCost = toMoneyNumber(stock * costPrice);
+                    return {
+                        snackName: s?.name || 'Unknown',
+                        stock,
+                        costPrice,
+                        stockCost
+                    };
+                })
+                .sort((a, b) => b.stockCost - a.stockCost || b.stock - a.stock || a.snackName.localeCompare(b.snackName));
+            const totalStockCostAll = stockCostRows.reduce((sum, row) => toMoneyNumber(sum + row.stockCost), 0);
             const potentialProfitAllStock = snacks.reduce((sum, s) => {
-                const sell = Number(s.price) || 0;
-                const cost = Number(s.costPrice) || 0;
+                const sell = toMoneyNumber(s.price);
+                const cost = toMoneyNumber(s.costPrice);
                 const stock = Number(s.stock) || 0;
-                return sum + ((sell - cost) * stock);
+                return toMoneyNumber(sum + toMoneyNumber((sell - cost) * stock));
             }, 0);
 
             const summary = document.getElementById('profitSummaryCards');
+            const stockCostList = document.getElementById('stockCostList');
             const productList = document.getElementById('profitProductList');
             const bestSellerList = document.getElementById('bestSellerList');
             const worstSellerList = document.getElementById('worstSellerList');
             const auditLogList = document.getElementById('auditLogList');
-            if (!summary || !productList || !bestSellerList || !worstSellerList || !auditLogList) return;
+            if (!summary || !stockCostList || !productList || !bestSellerList || !worstSellerList || !auditLogList) return;
 
             summary.innerHTML = `
                 <div class="stat-card">
                     <div class="stat-label">ยอดขายรวม</div>
-                    <div class="stat-value">${totalRevenue} &#3647;</div>
+                    <div class="stat-value">${formatMoneyText(totalRevenue)} &#3647;</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">ต้นทุนรวม</div>
-                    <div class="stat-value">${totalCost} &#3647;</div>
+                    <div class="stat-value">${formatMoneyText(totalCost)} &#3647;</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">กำไรรวม</div>
-                    <div class="stat-value">${totalProfit} &#3647;</div>
+                    <div class="stat-value">${formatMoneyText(totalProfit)} &#3647;</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Margin</div>
@@ -119,9 +136,30 @@
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">กำไรถ้าขายสต็อกหมด</div>
-                    <div class="stat-value">${potentialProfitAllStock} &#3647;</div>
+                    <div class="stat-value">${formatMoneyText(potentialProfitAllStock)} &#3647;</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">มูลค่าทุนสต็อกทั้งหมด</div>
+                    <div class="stat-value">${formatMoneyText(totalStockCostAll)} &#3647;</div>
                 </div>
             `;
+
+            if (stockCostRows.length === 0) {
+                stockCostList.innerHTML = '<div class="empty-state" style="padding: 24px;"><div class="empty-state-icon">📦</div><p>ยังไม่มีข้อมูลสินค้า</p></div>';
+            } else {
+                stockCostList.innerHTML = stockCostRows.map((row) => `
+                    <div class="customer-detail-item">
+                        <div class="customer-detail-header">
+                            <div class="customer-detail-name">${row.snackName}</div>
+                            <div class="customer-detail-total">${formatMoneyText(row.stockCost)} &#3647;</div>
+                        </div>
+                        <div class="customer-detail-info">
+                            <span>คงเหลือ ${row.stock} ชิ้น</span>
+                            <span>ทุน/ชิ้น ${formatMoneyText(row.costPrice)} &#3647;</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
 
             if (rows.length === 0) {
                 const emptyHtml = '<div class="empty-state" style="padding: 24px;"><div class="empty-state-icon">📊</div><p>ยังไม่มีรายการขายในเดือนนี้</p></div>';
@@ -132,15 +170,15 @@
                     <div class="customer-detail-item">
                         <div class="customer-detail-header">
                             <div class="customer-detail-name">${r.snackName}</div>
-                            <div class="customer-detail-total">${r.profit} &#3647;</div>
+                            <div class="customer-detail-total">${formatMoneyText(r.profit)} &#3647;</div>
                         </div>
                         <div class="customer-detail-info">
                             <span>ขายได้ ${r.soldQty} ชิ้น</span>
                             <span>กำไร ${r.marginPct.toFixed(2)}%</span>
                         </div>
                         <div class="customer-detail-info">
-                            <span>ยอดขาย ${r.revenue} &#3647;</span>
-                            <span>ต้นทุน ${r.cost} &#3647;</span>
+                            <span>ยอดขาย ${formatMoneyText(r.revenue)} &#3647;</span>
+                            <span>ต้นทุน ${formatMoneyText(r.cost)} &#3647;</span>
                         </div>
                     </div>
                 `).join('');
@@ -155,7 +193,7 @@
                                 <div class="customer-detail-total">${r.soldQty} ชิ้น</div>
                             </div>
                             <div class="customer-detail-info">
-                                <span>กำไร ${r.profit} &#3647;</span>
+                                <span>กำไร ${formatMoneyText(r.profit)} &#3647;</span>
                                 <span>Margin ${r.marginPct.toFixed(2)}%</span>
                             </div>
                         </div>
@@ -167,9 +205,9 @@
                 const name = s?.name || 'Unknown';
                 const fromSales = soldBySnackName.get(name);
                 const soldQty = Number(fromSales?.soldQty) || 0;
-                const revenue = Number(fromSales?.revenue) || 0;
-                const cost = Number(fromSales?.cost) || 0;
-                const profit = Number(fromSales?.profit) || 0;
+                const revenue = toMoneyNumber(fromSales?.revenue);
+                const cost = toMoneyNumber(fromSales?.cost);
+                const profit = toMoneyNumber(fromSales?.profit);
                 return {
                     snackName: name,
                     soldQty,
@@ -192,8 +230,8 @@
                             <div class="customer-detail-total">${r.soldQty} ชิ้น</div>
                         </div>
                         <div class="customer-detail-info">
-                            <span>ยอดขาย ${r.revenue} &#3647;</span>
-                            <span>กำไร ${r.profit} &#3647;</span>
+                            <span>ยอดขาย ${formatMoneyText(r.revenue)} &#3647;</span>
+                            <span>กำไร ${formatMoneyText(r.profit)} &#3647;</span>
                         </div>
                         <div class="customer-detail-info">
                             <span>สต็อกคงเหลือ ${r.stock}</span>
@@ -295,6 +333,17 @@
             const n = Number(value);
             if (!Number.isFinite(n)) return '';
             return n.toFixed(2);
+        }
+
+        function toMoneyNumber(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return 0;
+            return Number(n.toFixed(2));
+        }
+
+        function formatMoneyText(value) {
+            const n = toMoneyNumber(value);
+            return Number.isInteger(n) ? String(n) : n.toFixed(2);
         }
 
         function formatSnackMoneyInput(inputId) {

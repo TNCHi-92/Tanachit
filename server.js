@@ -118,7 +118,8 @@ async function initDb() {
       line_revenue NUMERIC(12,2) NOT NULL DEFAULT 0,
       line_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
       line_profit NUMERIC(12,2) NOT NULL DEFAULT 0,
-      purchased_at TIMESTAMPTZ NOT NULL
+      purchased_at TIMESTAMPTZ NOT NULL,
+      settled_at TIMESTAMPTZ NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_purchases_purchased_at ON purchases (purchased_at DESC);
@@ -155,6 +156,7 @@ async function initDb() {
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS line_revenue NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS line_cost NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS line_profit NUMERIC(12,2) NOT NULL DEFAULT 0;
+    ALTER TABLE purchases ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ NULL;
     ALTER TABLE purchases ALTER COLUMN price TYPE NUMERIC(12,2) USING ROUND(price::numeric, 2);
     ALTER TABLE purchases ALTER COLUMN unit_cost TYPE NUMERIC(12,2) USING ROUND(unit_cost::numeric, 2);
     ALTER TABLE purchases ALTER COLUMN unit_price TYPE NUMERIC(12,2) USING ROUND(unit_price::numeric, 2);
@@ -334,6 +336,14 @@ function validateState(state) {
 function normalizePurchase(purchase, idx) {
   const snack = purchase?.snack && typeof purchase.snack === "object" ? purchase.snack : {};
   const iso = new Date(purchase?.date || Date.now()).toISOString();
+  const settledRaw = purchase?.settledAt ?? purchase?.settled_at ?? null;
+  let settledAt = null;
+  if (settledRaw) {
+    const settledDate = new Date(settledRaw);
+    if (!Number.isNaN(settledDate.getTime())) {
+      settledAt = settledDate.toISOString();
+    }
+  }
   const qty = Math.max(1, asInt(purchase?.qty, 1));
   const unitPrice = Math.max(0, asMoney(purchase?.unitPrice ?? purchase?.price ?? snack?.sellPrice ?? snack?.price, 0));
   const unitCost = Math.max(0, asMoney(purchase?.unitCost ?? snack?.costPrice, 0));
@@ -355,7 +365,8 @@ function normalizePurchase(purchase, idx) {
     lineRevenue,
     lineCost,
     lineProfit,
-    purchasedAt: iso
+    purchasedAt: iso,
+    settledAt
   };
 }
 
@@ -453,8 +464,8 @@ async function writeStateTx(client, state) {
       `
       INSERT INTO purchases (
         id, customer_name, snack_id, snack_name, snack_emoji, snack_image, snack_stock, price,
-        qty, unit_cost, unit_price, line_revenue, line_cost, line_profit, purchased_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::timestamptz)
+        qty, unit_cost, unit_price, line_revenue, line_cost, line_profit, purchased_at, settled_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::timestamptz, $16::timestamptz)
       `,
       [
         purchase.id,
@@ -471,7 +482,8 @@ async function writeStateTx(client, state) {
         purchase.lineRevenue,
         purchase.lineCost,
         purchase.lineProfit,
-        purchase.purchasedAt
+        purchase.purchasedAt,
+        purchase.settledAt
       ]
     );
   }
@@ -495,7 +507,7 @@ async function readState() {
     pool.query(
       `
       SELECT id, customer_name, snack_id, snack_name, snack_emoji, snack_stock, price,
-             qty, unit_cost, unit_price, line_revenue, line_cost, line_profit, purchased_at
+             qty, unit_cost, unit_price, line_revenue, line_cost, line_profit, purchased_at, settled_at
       FROM purchases
       ORDER BY purchased_at DESC, id DESC
       `
@@ -555,7 +567,8 @@ async function readState() {
         cost: Number(r.line_cost ?? 0),
         profit: Number(r.line_profit ?? Number(r.price)),
         price: Number(r.price),
-        date: new Date(r.purchased_at).toISOString()
+        date: new Date(r.purchased_at).toISOString(),
+        settledAt: r.settled_at ? new Date(r.settled_at).toISOString() : null
       };
     }),
     auditLogs: auditRes.rows.map((r) => ({
@@ -686,14 +699,16 @@ function getMonthlyReport(state, monthText) {
     revenue = asMoney(revenue + lineRevenue, 0);
     cost = asMoney(cost + lineCost, 0);
 
-    if (!billingByCustomer[name]) billingByCustomer[name] = { total: 0, qty: 0 };
-    billingByCustomer[name].total += lineRevenue;
-    billingByCustomer[name].qty += qty;
+    if (!p?.settledAt) {
+      if (!billingByCustomer[name]) billingByCustomer[name] = { total: 0, qty: 0 };
+      billingByCustomer[name].total = asMoney(billingByCustomer[name].total + lineRevenue, 0);
+      billingByCustomer[name].qty += qty;
+    }
 
     if (!productTotals[itemName]) productTotals[itemName] = { soldQty: 0, revenue: 0, cost: 0 };
     productTotals[itemName].soldQty += qty;
-    productTotals[itemName].revenue += lineRevenue;
-    productTotals[itemName].cost += lineCost;
+    productTotals[itemName].revenue = asMoney(productTotals[itemName].revenue + lineRevenue, 0);
+    productTotals[itemName].cost = asMoney(productTotals[itemName].cost + lineCost, 0);
   }
 
   const bestSellers = Object.entries(productTotals)

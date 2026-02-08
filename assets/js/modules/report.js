@@ -9,16 +9,31 @@ function closeReportModal() {
     document.getElementById('reportModal').classList.remove('active');
 }
 
+function toMoneyNumber(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    return Number(n.toFixed(2));
+}
+
+function sumMoney(a, b) {
+    return toMoneyNumber(toMoneyNumber(a) + toMoneyNumber(b));
+}
+
+function formatMoneyText(value) {
+    const n = toMoneyNumber(value);
+    return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
 function getQty(purchase) {
     return Math.max(1, Number(purchase?.qty) || 1);
 }
 
 function getUnitPrice(purchase) {
-    return Math.max(0, Number(purchase?.unitPrice ?? purchase?.price) || 0);
+    return Math.max(0, toMoneyNumber(purchase?.unitPrice ?? purchase?.price));
 }
 
 function getUnitCost(purchase) {
-    return Math.max(0, Number(purchase?.unitCost ?? purchase?.snack?.costPrice) || 0);
+    return Math.max(0, toMoneyNumber(purchase?.unitCost ?? purchase?.snack?.costPrice));
 }
 
 function getSnackName(purchase) {
@@ -40,13 +55,21 @@ function getMonthRange(reportMonth) {
     return { year, month, monthStart, monthEnd };
 }
 
+function isPurchaseSettled(purchase) {
+    return Boolean(purchase?.settledAt);
+}
+
+function getOutstandingPurchases() {
+    return (Array.isArray(purchases) ? purchases : []).filter((p) => !isPurchaseSettled(p));
+}
+
 function buildCustomerBilling(monthlyPurchases) {
     const customerBilling = {};
     monthlyPurchases.forEach((purchase) => {
         const customerName = purchase.customerName || 'ไม่ระบุชื่อ';
         const qty = getQty(purchase);
         const unitPrice = getUnitPrice(purchase);
-        const lineRevenue = qty * unitPrice;
+        const lineRevenue = toMoneyNumber(qty * unitPrice);
         const snackName = getSnackName(purchase);
 
         if (!customerBilling[customerName]) {
@@ -58,14 +81,14 @@ function buildCustomerBilling(monthlyPurchases) {
         }
 
         const row = customerBilling[customerName];
-        row.total += lineRevenue;
+        row.total = sumMoney(row.total, lineRevenue);
         row.count += qty;
 
         if (!row.items[snackName]) {
             row.items[snackName] = { qty: 0, total: 0 };
         }
         row.items[snackName].qty += qty;
-        row.items[snackName].total += lineRevenue;
+        row.items[snackName].total = sumMoney(row.items[snackName].total, lineRevenue);
     });
     return customerBilling;
 }
@@ -76,7 +99,7 @@ function formatCustomerItemsLine(customerData, maxItems = 3) {
     if (entries.length === 0) return 'ยังไม่มีรายการสินค้า';
 
     const shown = entries.slice(0, maxItems)
-        .map(([snackName, item]) => `${snackName} x${item.qty} (${item.total} ฿)`)
+        .map(([snackName, item]) => `${snackName} x${item.qty} (${formatMoneyText(item.total)} ฿)`)
         .join(' • ');
     if (entries.length <= maxItems) return shown;
     return `${shown} • +${entries.length - maxItems} รายการ`;
@@ -91,9 +114,9 @@ function collectProductRowsFromPurchases(sourcePurchases) {
         const qty = getQty(purchase);
         const unitPrice = getUnitPrice(purchase);
         const unitCost = getUnitCost(purchase);
-        const revenue = qty * unitPrice;
-        const cost = qty * unitCost;
-        const profit = revenue - cost;
+        const revenue = toMoneyNumber(qty * unitPrice);
+        const cost = toMoneyNumber(qty * unitCost);
+        const profit = toMoneyNumber(revenue - cost);
 
         if (!rowsByProduct.has(key)) {
             rowsByProduct.set(key, {
@@ -110,9 +133,9 @@ function collectProductRowsFromPurchases(sourcePurchases) {
 
         const row = rowsByProduct.get(key);
         row.soldQty += qty;
-        row.revenue += revenue;
-        row.cost += cost;
-        row.profit += profit;
+        row.revenue = sumMoney(row.revenue, revenue);
+        row.cost = sumMoney(row.cost, cost);
+        row.profit = sumMoney(row.profit, profit);
     });
 
     return rowsByProduct;
@@ -123,7 +146,7 @@ function finalizeProductRows(rows) {
         .map((row) => ({
             ...row,
             marginPct: row.revenue > 0 ? (row.profit / row.revenue) * 100 : 0,
-            avgSellPrice: row.soldQty > 0 ? row.revenue / row.soldQty : 0
+            avgSellPrice: row.soldQty > 0 ? toMoneyNumber(row.revenue / row.soldQty) : 0
         }))
         .sort((a, b) => b.soldQty - a.soldQty || b.revenue - a.revenue);
 }
@@ -145,12 +168,12 @@ function buildCumulativeProductRows() {
         const fromPurchases = allPurchasesMap.get(key);
         const soldFromSnack = Math.max(0, Number(item?.totalSold) || 0);
         const soldQty = Math.max(soldFromSnack, fromPurchases?.soldQty || 0);
-        const sellPrice = Math.max(0, Number(item?.price) || 0);
-        const costPrice = Math.max(0, Number(item?.costPrice) || 0);
+        const sellPrice = Math.max(0, toMoneyNumber(item?.price));
+        const costPrice = Math.max(0, toMoneyNumber(item?.costPrice));
         const estimated = !fromPurchases && soldQty > 0;
-        const revenue = fromPurchases ? fromPurchases.revenue : soldQty * sellPrice;
-        const cost = fromPurchases ? fromPurchases.cost : soldQty * costPrice;
-        const profit = revenue - cost;
+        const revenue = fromPurchases ? toMoneyNumber(fromPurchases.revenue) : toMoneyNumber(soldQty * sellPrice);
+        const cost = fromPurchases ? toMoneyNumber(fromPurchases.cost) : toMoneyNumber(soldQty * costPrice);
+        const profit = toMoneyNumber(revenue - cost);
 
         rows.push({
             key,
@@ -188,9 +211,9 @@ function renderProductRows(rows, emptyText) {
                 <div class="customer-detail-total">ขาย ${row.soldQty} ชิ้น</div>
             </div>
             <div class="customer-detail-info">
-                <span>ยอดขาย ${row.revenue} &#3647;</span>
-                <span>ต้นทุน ${row.cost} &#3647;</span>
-                <span>กำไร ${row.profit} &#3647;</span>
+                <span>ยอดขาย ${formatMoneyText(row.revenue)} &#3647;</span>
+                <span>ต้นทุน ${formatMoneyText(row.cost)} &#3647;</span>
+                <span>กำไร ${formatMoneyText(row.profit)} &#3647;</span>
             </div>
             <div class="customer-detail-info">
                 <span>กำไร ${row.marginPct.toFixed(2)}%</span>
@@ -233,20 +256,20 @@ function generateReport() {
     const monthlyProductRows = buildMonthlyProductRows(monthlyPurchases);
     const cumulativeProductRows = buildCumulativeProductRows();
 
-    const monthlyRevenue = monthlyProductRows.reduce((sum, row) => sum + row.revenue, 0);
-    const monthlyCost = monthlyProductRows.reduce((sum, row) => sum + row.cost, 0);
-    const monthlyProfit = monthlyRevenue - monthlyCost;
+    const monthlyRevenue = monthlyProductRows.reduce((sum, row) => sumMoney(sum, row.revenue), 0);
+    const monthlyCost = monthlyProductRows.reduce((sum, row) => sumMoney(sum, row.cost), 0);
+    const monthlyProfit = toMoneyNumber(monthlyRevenue - monthlyCost);
     const totalStock = snacks.reduce((sum, item) => sum + (Number(item.stock) || 0), 0);
     const soldPiecesThisMonth = monthlyProductRows.reduce((sum, row) => sum + row.soldQty, 0);
 
-    const customerBilling = buildCustomerBilling(monthlyPurchases);
+    const customerBilling = buildCustomerBilling(getOutstandingPurchases());
 
     const sellOutForecast = snacks.map((item) => {
         const stock = Number(item.stock) || 0;
-        const sellPrice = Number(item.price) || 0;
-        const costPrice = Number(item.costPrice) || 0;
-        const profitPerUnit = sellPrice - costPrice;
-        const totalProfit = profitPerUnit * stock;
+        const sellPrice = toMoneyNumber(item.price);
+        const costPrice = toMoneyNumber(item.costPrice);
+        const profitPerUnit = toMoneyNumber(sellPrice - costPrice);
+        const totalProfit = toMoneyNumber(profitPerUnit * stock);
         return {
             id: item.id,
             name: item.name,
@@ -255,7 +278,7 @@ function generateReport() {
             totalProfit
         };
     });
-    const potentialProfitAll = sellOutForecast.reduce((sum, row) => sum + row.totalProfit, 0);
+    const potentialProfitAll = sellOutForecast.reduce((sum, row) => sumMoney(sum, row.totalProfit), 0);
 
     const monthlyTopRows = monthlyProductRows.slice(0, 5);
     const cumulativeTopRows = cumulativeProductRows.slice(0, 5);
@@ -265,15 +288,15 @@ function generateReport() {
         <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-label">ยอดขายเดือนนี้</div>
-                <div class="stat-value">${monthlyRevenue} &#3647;</div>
+                <div class="stat-value">${formatMoneyText(monthlyRevenue)} &#3647;</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">ต้นทุนเดือนนี้</div>
-                <div class="stat-value">${monthlyCost} &#3647;</div>
+                <div class="stat-value">${formatMoneyText(monthlyCost)} &#3647;</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">กำไรเดือนนี้</div>
-                <div class="stat-value">${monthlyProfit} &#3647;</div>
+                <div class="stat-value">${formatMoneyText(monthlyProfit)} &#3647;</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">ชิ้นที่ขายได้เดือนนี้</div>
@@ -281,7 +304,7 @@ function generateReport() {
             </div>
             <div class="stat-card">
                 <div class="stat-label">กำไรถ้าขายสต็อกหมด</div>
-                <div class="stat-value">${potentialProfitAll} &#3647;</div>
+                <div class="stat-value">${formatMoneyText(potentialProfitAll)} &#3647;</div>
             </div>
             <div class="stat-card">
                 <div class="stat-label">สต็อกคงเหลือ</div>
@@ -290,15 +313,17 @@ function generateReport() {
         </div>
 
         <div style="margin-top: 30px;">
-            <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 15px; color: var(--text-dark); font-size: 1.2rem;">💳 สรุปยอดที่ต้องเก็บจากลูกค้า (ราคาขาย)</h4>
+            <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 15px; color: var(--text-dark); font-size: 1.2rem;">💳 ยอดค้างที่ต้องเก็บจากลูกค้า</h4>
             <div class="customer-detail-list">
-                ${Object.entries(customerBilling)
+                ${Object.entries(customerBilling).length === 0
+                    ? '<div class="empty-state" style="padding: 24px;"><div class="empty-state-icon">✅</div><p>ไม่มีบิลค้างชำระ</p></div>'
+                    : Object.entries(customerBilling)
                     .sort((a, b) => b[1].total - a[1].total)
                     .map(([name, data]) => `
                         <div class="customer-detail-item">
                             <div class="customer-detail-header">
                                 <div class="customer-detail-name">${name}</div>
-                                <div class="customer-detail-total">${data.total} &#3647;</div>
+                                <div class="customer-detail-total">${formatMoneyText(data.total)} &#3647;</div>
                             </div>
                             <div class="customer-detail-info">
                                 <span>ซื้อ ${data.count} ชิ้น</span>
@@ -308,9 +333,14 @@ function generateReport() {
                                 <span>รายการ: ${formatCustomerItemsLine(data, 3)}</span>
                             </div>
                             <div class="qr-container">
-                                <button class="btn btn-secondary" style="width: 100%;" onclick="generateQRFromEncoded('${encodeURIComponent(name)}', ${data.total})">
-                                    🔗 สร้าง QR Code สำหรับคิดเงิน
-                                </button>
+                                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                    <button class="btn btn-secondary" style="flex: 1;" onclick="generateQRFromEncoded('${encodeURIComponent(name)}', ${data.total})">
+                                        🔗 สร้าง QR Code สำหรับคิดเงิน
+                                    </button>
+                                    <button class="btn btn-primary" style="flex: 1;" onclick="settleCustomerBillingFromEncoded('${encodeURIComponent(name)}')">
+                                        ✅ ปิดบิลแล้ว
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     `).join('')}
@@ -366,11 +396,11 @@ function generateReport() {
                         <div class="customer-detail-item">
                             <div class="customer-detail-header">
                                 <div class="customer-detail-name">${row.name}</div>
-                                <div class="customer-detail-total">${row.totalProfit} &#3647;</div>
+                                <div class="customer-detail-total">${formatMoneyText(row.totalProfit)} &#3647;</div>
                             </div>
                             <div class="customer-detail-info">
                                 <span>สต็อก ${row.stock}</span>
-                                <span>กำไร/ชิ้น ${row.profitPerUnit} &#3647;</span>
+                                <span>กำไร/ชิ้น ${formatMoneyText(row.profitPerUnit)} &#3647;</span>
                             </div>
                         </div>
                     `).join('')}
@@ -392,9 +422,52 @@ function generateQRFromEncoded(encodedName, amount) {
     generateQR(name, amount);
 }
 
+function settleCustomerBillingFromEncoded(encodedName) {
+    const name = decodeURIComponent(encodedName || '');
+    settleCustomerBilling(name);
+}
+
+function settleCustomerBilling(customerName) {
+    const name = String(customerName || '').trim();
+    if (!name) return;
+
+    const unsettledRows = (Array.isArray(purchases) ? purchases : [])
+        .filter((p) => String(p?.customerName || '').trim() === name && !isPurchaseSettled(p));
+    if (unsettledRows.length === 0) {
+        showToast(`ไม่มีบิลค้างของ ${name}`, 'info');
+        return;
+    }
+
+    const settledAt = new Date().toISOString();
+    const totalAmount = unsettledRows.reduce((sum, row) => {
+        const line = Number.isFinite(Number(row?.revenue))
+            ? toMoneyNumber(row.revenue)
+            : toMoneyNumber(getQty(row) * getUnitPrice(row));
+        return sumMoney(sum, line);
+    }, 0);
+
+    purchases.forEach((p) => {
+        if (String(p?.customerName || '').trim() === name && !isPurchaseSettled(p)) {
+            p.settledAt = settledAt;
+        }
+    });
+
+    if (typeof savePurchases === 'function') savePurchases();
+    if (typeof addAuditLog === 'function') {
+        addAuditLog('billing.settle', `ปิดบิล ${name}`, {
+            purchases: unsettledRows.length,
+            total: totalAmount,
+            settledAt
+        });
+    }
+
+    generateReport();
+    showToast(`✅ ปิดบิล ${name} (${formatMoneyText(totalAmount)} บาท)`, 'success');
+}
+
 function generateQR(customerName, amount) {
     showToast('🔗 สร้าง QR Code สำเร็จ', 'success');
-    alert(`QR Code สำหรับ: ${customerName}\nยอดเงิน: ${amount} บาท\n\nในระบบจริง จะแสดง QR Code ที่สแกนชำระเงินได้ทันที`);
+    alert(`QR Code สำหรับ: ${customerName}\nยอดเงิน: ${formatMoneyText(amount)} บาท\n\nในระบบจริง จะแสดง QR Code ที่สแกนชำระเงินได้ทันที`);
 }
 
 function exportProductRowsText(title, rows) {
@@ -403,7 +476,7 @@ function exportProductRowsText(title, rows) {
         return `${text}(ไม่มีข้อมูล)\n\n`;
     }
     rows.forEach((row) => {
-        text += `${row.name}: sold=${row.soldQty}, revenue=${row.revenue} THB, cost=${row.cost} THB, profit=${row.profit} THB, margin=${row.marginPct.toFixed(2)}%\n`;
+        text += `${row.name}: sold=${row.soldQty}, revenue=${formatMoneyText(row.revenue)} THB, cost=${formatMoneyText(row.cost)} THB, profit=${formatMoneyText(row.profit)} THB, margin=${row.marginPct.toFixed(2)}%\n`;
     });
     return `${text}\n`;
 }
@@ -421,38 +494,38 @@ function exportReport() {
     const monthName = new Date(year, month - 1).toLocaleDateString('th-TH', { year: 'numeric', month: 'long' });
     const monthlyProductRows = buildMonthlyProductRows(monthlyPurchases);
     const cumulativeProductRows = buildCumulativeProductRows();
-    const monthlyRevenue = monthlyProductRows.reduce((sum, row) => sum + row.revenue, 0);
-    const monthlyCost = monthlyProductRows.reduce((sum, row) => sum + row.cost, 0);
-    const monthlyProfit = monthlyRevenue - monthlyCost;
+    const monthlyRevenue = monthlyProductRows.reduce((sum, row) => sumMoney(sum, row.revenue), 0);
+    const monthlyCost = monthlyProductRows.reduce((sum, row) => sumMoney(sum, row.cost), 0);
+    const monthlyProfit = toMoneyNumber(monthlyRevenue - monthlyCost);
 
-    const customerBilling = buildCustomerBilling(monthlyPurchases);
+    const customerBilling = buildCustomerBilling(getOutstandingPurchases());
 
     const sellOutForecast = snacks.map((item) => {
         const stock = Number(item.stock) || 0;
-        const sellPrice = Number(item.price) || 0;
-        const costPrice = Number(item.costPrice) || 0;
-        const profitPerUnit = sellPrice - costPrice;
-        const totalProfit = profitPerUnit * stock;
+        const sellPrice = toMoneyNumber(item.price);
+        const costPrice = toMoneyNumber(item.costPrice);
+        const profitPerUnit = toMoneyNumber(sellPrice - costPrice);
+        const totalProfit = toMoneyNumber(profitPerUnit * stock);
         return { name: item.name, stock, profitPerUnit, totalProfit };
     });
-    const potentialProfitAll = sellOutForecast.reduce((sum, row) => sum + row.totalProfit, 0);
+    const potentialProfitAll = sellOutForecast.reduce((sum, row) => sumMoney(sum, row.totalProfit), 0);
 
     let reportText = `=== Profit report ${monthName} ===\n\n`;
-    reportText += `Monthly revenue: ${monthlyRevenue} THB\n`;
-    reportText += `Monthly cost: ${monthlyCost} THB\n`;
-    reportText += `Monthly profit: ${monthlyProfit} THB\n`;
+    reportText += `Monthly revenue: ${formatMoneyText(monthlyRevenue)} THB\n`;
+    reportText += `Monthly cost: ${formatMoneyText(monthlyCost)} THB\n`;
+    reportText += `Monthly profit: ${formatMoneyText(monthlyProfit)} THB\n`;
     reportText += `Transactions: ${monthlyPurchases.length}\n`;
-    reportText += `Potential profit if all stock sold: ${potentialProfitAll} THB\n\n`;
+    reportText += `Potential profit if all stock sold: ${formatMoneyText(potentialProfitAll)} THB\n\n`;
 
     reportText += '--- Customer billing (sell price) ---\n';
     Object.entries(customerBilling)
         .sort((a, b) => b[1].total - a[1].total)
         .forEach(([name, data]) => {
-            reportText += `${name}: total=${data.total} THB, qty=${data.count}\n`;
+            reportText += `${name}: total=${formatMoneyText(data.total)} THB, qty=${data.count}\n`;
             Object.entries(data.items || {})
                 .sort((a, b) => b[1].total - a[1].total)
                 .forEach(([snackName, item]) => {
-                    reportText += `  - ${snackName}: qty=${item.qty}, amount=${item.total} THB\n`;
+                    reportText += `  - ${snackName}: qty=${item.qty}, amount=${formatMoneyText(item.total)} THB\n`;
                 });
         });
     reportText += '\n';
@@ -464,7 +537,7 @@ function exportReport() {
     sellOutForecast
         .sort((a, b) => b.totalProfit - a.totalProfit)
         .forEach((row) => {
-            reportText += `${row.name}: stock=${row.stock}, profit/unit=${row.profitPerUnit} THB, total=${row.totalProfit} THB\n`;
+            reportText += `${row.name}: stock=${row.stock}, profit/unit=${formatMoneyText(row.profitPerUnit)} THB, total=${formatMoneyText(row.totalProfit)} THB\n`;
         });
 
     const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });

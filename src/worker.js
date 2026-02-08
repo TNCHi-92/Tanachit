@@ -69,6 +69,12 @@ function normalizeUser(user, idx) {
 
 function normalizePurchase(purchase, idx) {
   const snack = purchase?.snack && typeof purchase.snack === "object" ? purchase.snack : {};
+  const settledRaw = purchase?.settledAt ?? purchase?.settled_at ?? null;
+  let settledAt = null;
+  if (settledRaw) {
+    const dt = new Date(settledRaw);
+    if (!Number.isNaN(dt.getTime())) settledAt = dt.toISOString();
+  }
   return {
     id: toText(purchase?.id, `${Date.now()}_${idx}`),
     customerName: toText(purchase?.customerName, "Unknown"),
@@ -77,7 +83,8 @@ function normalizePurchase(purchase, idx) {
     snackEmoji: snack?.emoji ? toText(snack.emoji) : null,
     snackStock: snack?.stock !== null && snack?.stock !== undefined ? toInt(snack.stock, null) : null,
     price: toInt(purchase?.price ?? snack?.price, 0),
-    purchasedAt: new Date(purchase?.date || Date.now()).toISOString()
+    purchasedAt: new Date(purchase?.date || Date.now()).toISOString(),
+    settledAt
   };
 }
 
@@ -117,9 +124,11 @@ async function ensureSchema(sql) {
         snack_image TEXT,
         snack_stock INTEGER,
         price INTEGER NOT NULL,
-        purchased_at TIMESTAMPTZ NOT NULL
+        purchased_at TIMESTAMPTZ NOT NULL,
+        settled_at TIMESTAMPTZ NULL
       )
     `;
+    await sql`ALTER TABLE purchases ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ NULL`;
     await sql`UPDATE purchases SET snack_image = NULL WHERE snack_image IS NOT NULL`;
     await sql`CREATE INDEX IF NOT EXISTS idx_purchases_purchased_at ON purchases (purchased_at DESC)`;
     await sql`CREATE INDEX IF NOT EXISTS idx_purchases_customer ON purchases (customer_name)`;
@@ -133,7 +142,7 @@ async function readState(sql) {
     sql`SELECT name, shift FROM customers ORDER BY shift ASC, name ASC`,
     sql`SELECT id, display_name, aliases FROM users ORDER BY id ASC`,
     sql`
-      SELECT id, customer_name, snack_id, snack_name, snack_emoji, snack_stock, price, purchased_at
+      SELECT id, customer_name, snack_id, snack_name, snack_emoji, snack_stock, price, purchased_at, settled_at
       FROM purchases
       ORDER BY purchased_at DESC, id DESC
     `
@@ -168,7 +177,8 @@ async function readState(sql) {
           price: Number(r.price)
         },
         price: Number(r.price),
-        date: new Date(r.purchased_at).toISOString()
+        date: new Date(r.purchased_at).toISOString(),
+        settledAt: r.settled_at ? new Date(r.settled_at).toISOString() : null
       };
     })
   };
@@ -214,10 +224,10 @@ async function writeState(sql, input) {
     tx.push(
       sql`
         INSERT INTO purchases (
-          id, customer_name, snack_id, snack_name, snack_emoji, snack_image, snack_stock, price, purchased_at
+          id, customer_name, snack_id, snack_name, snack_emoji, snack_image, snack_stock, price, purchased_at, settled_at
         ) VALUES (
           ${p.id}, ${p.customerName}, ${p.snackId}, ${p.snackName}, ${p.snackEmoji},
-          ${null}, ${p.snackStock}, ${p.price}, ${p.purchasedAt}::timestamptz
+          ${null}, ${p.snackStock}, ${p.price}, ${p.purchasedAt}::timestamptz, ${p.settledAt}::timestamptz
         )
       `
     );
