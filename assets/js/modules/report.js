@@ -1,307 +1,451 @@
-        // Show monthly report modal
-        function showMonthlyReport() {
-            document.getElementById('reportModal').classList.add('active');
-            generateReport();
+let productSalesView = 'monthly';
+
+function showMonthlyReport() {
+    document.getElementById('reportModal').classList.add('active');
+    generateReport();
+}
+
+function closeReportModal() {
+    document.getElementById('reportModal').classList.remove('active');
+}
+
+function getQty(purchase) {
+    return Math.max(1, Number(purchase?.qty) || 1);
+}
+
+function getUnitPrice(purchase) {
+    return Math.max(0, Number(purchase?.unitPrice ?? purchase?.price) || 0);
+}
+
+function getUnitCost(purchase) {
+    return Math.max(0, Number(purchase?.unitCost ?? purchase?.snack?.costPrice) || 0);
+}
+
+function getSnackName(purchase) {
+    return purchase?.snack?.name || purchase?.snackName || 'ไม่ระบุสินค้า';
+}
+
+function getSnackKey(purchase) {
+    const snackId = Number(purchase?.snack?.id);
+    if (Number.isFinite(snackId) && snackId > 0) {
+        return `id:${snackId}`;
+    }
+    return `name:${getSnackName(purchase)}`;
+}
+
+function getMonthRange(reportMonth) {
+    const [year, month] = reportMonth.split('-').map(Number);
+    const monthStart = new Date(year, month - 1, 1);
+    const monthEnd = new Date(year, month, 0, 23, 59, 59);
+    return { year, month, monthStart, monthEnd };
+}
+
+function collectProductRowsFromPurchases(sourcePurchases) {
+    const rowsByProduct = new Map();
+    sourcePurchases.forEach((purchase) => {
+        const key = getSnackKey(purchase);
+        const snackId = Number(purchase?.snack?.id);
+        const name = getSnackName(purchase);
+        const qty = getQty(purchase);
+        const unitPrice = getUnitPrice(purchase);
+        const unitCost = getUnitCost(purchase);
+        const revenue = qty * unitPrice;
+        const cost = qty * unitCost;
+        const profit = revenue - cost;
+
+        if (!rowsByProduct.has(key)) {
+            rowsByProduct.set(key, {
+                key,
+                snackId: Number.isFinite(snackId) && snackId > 0 ? snackId : null,
+                name,
+                soldQty: 0,
+                revenue: 0,
+                cost: 0,
+                profit: 0,
+                estimated: false
+            });
         }
 
-        // Close report modal
-        function closeReportModal() {
-            document.getElementById('reportModal').classList.remove('active');
+        const row = rowsByProduct.get(key);
+        row.soldQty += qty;
+        row.revenue += revenue;
+        row.cost += cost;
+        row.profit += profit;
+    });
+
+    return rowsByProduct;
+}
+
+function finalizeProductRows(rows) {
+    return rows
+        .map((row) => ({
+            ...row,
+            marginPct: row.revenue > 0 ? (row.profit / row.revenue) * 100 : 0,
+            avgSellPrice: row.soldQty > 0 ? row.revenue / row.soldQty : 0
+        }))
+        .sort((a, b) => b.soldQty - a.soldQty || b.revenue - a.revenue);
+}
+
+function buildMonthlyProductRows(monthlyPurchases) {
+    const map = collectProductRowsFromPurchases(monthlyPurchases);
+    return finalizeProductRows(Array.from(map.values()));
+}
+
+function buildCumulativeProductRows() {
+    const allPurchasesMap = collectProductRowsFromPurchases(Array.isArray(purchases) ? purchases : []);
+    const rows = [];
+
+    snacks.forEach((item) => {
+        const snackId = Number(item?.id);
+        const key = Number.isFinite(snackId) && snackId > 0
+            ? `id:${snackId}`
+            : `name:${item?.name || ''}`;
+        const fromPurchases = allPurchasesMap.get(key);
+        const soldFromSnack = Math.max(0, Number(item?.totalSold) || 0);
+        const soldQty = Math.max(soldFromSnack, fromPurchases?.soldQty || 0);
+        const sellPrice = Math.max(0, Number(item?.price) || 0);
+        const costPrice = Math.max(0, Number(item?.costPrice) || 0);
+        const estimated = !fromPurchases && soldQty > 0;
+        const revenue = fromPurchases ? fromPurchases.revenue : soldQty * sellPrice;
+        const cost = fromPurchases ? fromPurchases.cost : soldQty * costPrice;
+        const profit = revenue - cost;
+
+        rows.push({
+            key,
+            snackId: Number.isFinite(snackId) && snackId > 0 ? snackId : null,
+            name: item?.name || fromPurchases?.name || 'ไม่ระบุสินค้า',
+            soldQty,
+            revenue,
+            cost,
+            profit,
+            estimated
+        });
+
+        allPurchasesMap.delete(key);
+    });
+
+    allPurchasesMap.forEach((row) => {
+        rows.push({
+            ...row,
+            estimated: false
+        });
+    });
+
+    return finalizeProductRows(rows);
+}
+
+function renderProductRows(rows, emptyText) {
+    if (!rows || rows.length === 0) {
+        return `<div class="empty-state" style="padding: 24px;"><div class="empty-state-icon">📦</div><p>${emptyText}</p></div>`;
+    }
+
+    return rows.map((row) => `
+        <div class="customer-detail-item">
+            <div class="customer-detail-header">
+                <div class="customer-detail-name">${row.name}</div>
+                <div class="customer-detail-total">ขาย ${row.soldQty} ชิ้น</div>
+            </div>
+            <div class="customer-detail-info">
+                <span>ยอดขาย ${row.revenue} &#3647;</span>
+                <span>ต้นทุน ${row.cost} &#3647;</span>
+                <span>กำไร ${row.profit} &#3647;</span>
+            </div>
+            <div class="customer-detail-info">
+                <span>กำไร ${row.marginPct.toFixed(2)}%</span>
+                <span>ราคาขายเฉลี่ย ${row.avgSellPrice.toFixed(2)} &#3647;/ชิ้น</span>
+                ${row.estimated ? '<span style="color: var(--warning);">*คำนวณจากราคาปัจจุบัน</span>' : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function showProductSalesView(view) {
+    productSalesView = view === 'cumulative' ? 'cumulative' : 'monthly';
+
+    const monthlyPanel = document.getElementById('productSalesMonthlyPanel');
+    const cumulativePanel = document.getElementById('productSalesCumulativePanel');
+    const monthlyBtn = document.getElementById('productSalesMonthlyBtn');
+    const cumulativeBtn = document.getElementById('productSalesCumulativeBtn');
+
+    if (!monthlyPanel || !cumulativePanel || !monthlyBtn || !cumulativeBtn) return;
+
+    monthlyPanel.style.display = productSalesView === 'monthly' ? 'block' : 'none';
+    cumulativePanel.style.display = productSalesView === 'cumulative' ? 'block' : 'none';
+
+    monthlyBtn.classList.toggle('btn-secondary', productSalesView === 'monthly');
+    monthlyBtn.classList.toggle('btn-outline', productSalesView !== 'monthly');
+    cumulativeBtn.classList.toggle('btn-secondary', productSalesView === 'cumulative');
+    cumulativeBtn.classList.toggle('btn-outline', productSalesView !== 'cumulative');
+}
+
+function generateReport() {
+    const reportMonth = document.getElementById('reportMonth').value;
+    if (!reportMonth) return;
+
+    const { year, month, monthStart, monthEnd } = getMonthRange(reportMonth);
+    const monthlyPurchases = purchases.filter((purchase) => {
+        const purchaseDate = new Date(purchase.date);
+        return purchaseDate >= monthStart && purchaseDate <= monthEnd;
+    });
+
+    const monthlyProductRows = buildMonthlyProductRows(monthlyPurchases);
+    const cumulativeProductRows = buildCumulativeProductRows();
+
+    const monthlyRevenue = monthlyProductRows.reduce((sum, row) => sum + row.revenue, 0);
+    const monthlyCost = monthlyProductRows.reduce((sum, row) => sum + row.cost, 0);
+    const monthlyProfit = monthlyRevenue - monthlyCost;
+    const totalStock = snacks.reduce((sum, item) => sum + (Number(item.stock) || 0), 0);
+    const soldPiecesThisMonth = monthlyProductRows.reduce((sum, row) => sum + row.soldQty, 0);
+
+    const customerBilling = {};
+    monthlyPurchases.forEach((purchase) => {
+        const customerName = purchase.customerName || 'ไม่ระบุชื่อ';
+        const qty = getQty(purchase);
+        const lineRevenue = qty * getUnitPrice(purchase);
+        if (!customerBilling[customerName]) {
+            customerBilling[customerName] = { total: 0, count: 0 };
         }
+        customerBilling[customerName].total += lineRevenue;
+        customerBilling[customerName].count += qty;
+    });
 
-        // Generate monthly report
-        function generateReport() {
-            const reportMonth = document.getElementById('reportMonth').value;
-            if (!reportMonth) return;
+    const sellOutForecast = snacks.map((item) => {
+        const stock = Number(item.stock) || 0;
+        const sellPrice = Number(item.price) || 0;
+        const costPrice = Number(item.costPrice) || 0;
+        const profitPerUnit = sellPrice - costPrice;
+        const totalProfit = profitPerUnit * stock;
+        return {
+            id: item.id,
+            name: item.name,
+            stock,
+            profitPerUnit,
+            totalProfit
+        };
+    });
+    const potentialProfitAll = sellOutForecast.reduce((sum, row) => sum + row.totalProfit, 0);
 
-            const [year, month] = reportMonth.split('-').map(Number);
-            const monthStart = new Date(year, month - 1, 1);
-            const monthEnd = new Date(year, month, 0, 23, 59, 59);
+    const monthlyTopRows = monthlyProductRows.slice(0, 5);
+    const cumulativeTopRows = cumulativeProductRows.slice(0, 5);
 
-            const monthlyPurchases = purchases.filter(purchase => {
-                const purchaseDate = new Date(purchase.date);
-                return purchaseDate >= monthStart && purchaseDate <= monthEnd;
-            });
+    const reportContent = document.getElementById('reportContent');
+    reportContent.innerHTML = `
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">ยอดขายเดือนนี้</div>
+                <div class="stat-value">${monthlyRevenue} &#3647;</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">ต้นทุนเดือนนี้</div>
+                <div class="stat-value">${monthlyCost} &#3647;</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">กำไรเดือนนี้</div>
+                <div class="stat-value">${monthlyProfit} &#3647;</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">ชิ้นที่ขายได้เดือนนี้</div>
+                <div class="stat-value">${soldPiecesThisMonth}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">กำไรถ้าขายสต็อกหมด</div>
+                <div class="stat-value">${potentialProfitAll} &#3647;</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">สต็อกคงเหลือ</div>
+                <div class="stat-value">${totalStock}</div>
+            </div>
+        </div>
 
-            const monthlyRevenue = monthlyPurchases.reduce((sum, p) => {
-                const unitPrice = Number(p.unitPrice ?? p.price) || 0;
-                return sum + unitPrice;
-            }, 0);
-            const monthlyCost = monthlyPurchases.reduce((sum, p) => {
-                const unitCost = Number(p.unitCost ?? p.snack?.costPrice) || 0;
-                return sum + unitCost;
-            }, 0);
-            const monthlyProfit = monthlyPurchases.reduce((sum, p) => {
-                if (Number.isFinite(Number(p.profit))) return sum + Number(p.profit);
-                const unitPrice = Number(p.unitPrice ?? p.price) || 0;
-                const unitCost = Number(p.unitCost ?? p.snack?.costPrice) || 0;
-                return sum + (unitPrice - unitCost);
-            }, 0);
-            const customerBilling = {};
+        <div style="margin-top: 30px;">
+            <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 15px; color: var(--text-dark); font-size: 1.2rem;">💳 สรุปยอดที่ต้องเก็บจากลูกค้า (ราคาขาย)</h4>
+            <div class="customer-detail-list">
+                ${Object.entries(customerBilling)
+                    .sort((a, b) => b[1].total - a[1].total)
+                    .map(([name, data]) => `
+                        <div class="customer-detail-item">
+                            <div class="customer-detail-header">
+                                <div class="customer-detail-name">${name}</div>
+                                <div class="customer-detail-total">${data.total} &#3647;</div>
+                            </div>
+                            <div class="customer-detail-info">
+                                <span>ซื้อ ${data.count} ชิ้น</span>
+                                <span>เฉลี่ย ${(data.total / Math.max(1, data.count)).toFixed(2)} &#3647;/ชิ้น</span>
+                            </div>
+                            <div class="qr-container">
+                                <button class="btn btn-secondary" style="width: 100%;" onclick="generateQRFromEncoded('${encodeURIComponent(name)}', ${data.total})">
+                                    🔗 สร้าง QR Code สำหรับคิดเงิน
+                                </button>
+                            </div>
+                        </div>
+                    `).join('')}
+            </div>
+        </div>
 
-            monthlyPurchases.forEach(p => {
-                const customerName = p.customerName || 'ไม่ระบุชื่อ';
-                const unitPrice = Number(p.unitPrice ?? p.price) || 0;
-                if (!customerBilling[customerName]) {
-                    customerBilling[customerName] = { total: 0, count: 0 };
-                }
-                customerBilling[customerName].total += unitPrice;
-                customerBilling[customerName].count += 1;
-            });
-            const totalTransactions = monthlyPurchases.length;
-            const totalStock = snacks.reduce((sum, item) => sum + (Number(item.stock) || 0), 0);
+        <div style="margin-top: 30px;">
+            <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 15px; color: var(--text-dark); font-size: 1.2rem;">📦 รายงานยอดขายรายสินค้า</h4>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;">
+                <button id="productSalesMonthlyBtn" class="btn btn-outline" onclick="showProductSalesView('monthly')">ยอดขายรายเดือน</button>
+                <button id="productSalesCumulativeBtn" class="btn btn-outline" onclick="showProductSalesView('cumulative')">ยอดขายสะสมทั้งหมด</button>
+            </div>
 
-            const sellOutForecast = snacks.map(item => {
-                const stock = Number(item.stock) || 0;
-                const sellPrice = Number(item.price) || 0;
-                const costPrice = Number(item.costPrice) || 0;
-                const profitPerUnit = sellPrice - costPrice;
-                const totalProfit = profitPerUnit * stock;
-                return {
-                    id: item.id,
-                    name: item.name,
-                    stock,
-                    profitPerUnit,
-                    totalProfit
-                };
-            });
-            const potentialProfitAll = sellOutForecast.reduce((sum, row) => sum + row.totalProfit, 0);
+            <div id="productSalesMonthlyPanel" class="customer-detail-list">
+                <h5 style="font-family: 'Mitr', sans-serif; margin-bottom: 12px; color: var(--text-dark);">เดือน ${new Date(year, month - 1).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}</h5>
+                ${renderProductRows(monthlyProductRows, 'เดือนนี้ยังไม่มีรายการขาย')}
+            </div>
 
-            const reportContent = document.getElementById('reportContent');
-            reportContent.innerHTML = `
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <div class="stat-label">Monthly Revenue</div>
-                        <div class="stat-value">${monthlyRevenue} &#3647;</div>
+            <div id="productSalesCumulativePanel" class="customer-detail-list" style="display: none;">
+                <h5 style="font-family: 'Mitr', sans-serif; margin-bottom: 12px; color: var(--text-dark);">ยอดขายสะสมตั้งแต่เริ่มใช้ระบบ</h5>
+                ${renderProductRows(cumulativeProductRows, 'ยังไม่มีข้อมูลยอดขายสะสม')}
+            </div>
+        </div>
+
+        <div style="margin-top: 30px;">
+            <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 15px; color: var(--text-dark); font-size: 1.2rem;">🔥 สินค้าขายดี</h4>
+            <div class="customer-detail-list">
+                <div class="customer-detail-item">
+                    <div class="customer-detail-header">
+                        <div class="customer-detail-name">Top 5 เดือนนี้</div>
                     </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Monthly Cost</div>
-                        <div class="stat-value">${monthlyCost} &#3647;</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Monthly Profit</div>
-                        <div class="stat-value">${monthlyProfit} &#3647;</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Profit If Sell Out</div>
-                        <div class="stat-value">${potentialProfitAll} &#3647;</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Remaining Stock</div>
-                        <div class="stat-value">${totalStock}</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Monthly Transactions</div>
-                        <div class="stat-value">${totalTransactions}</div>
-                    </div>
+                    ${monthlyTopRows.length > 0
+                        ? monthlyTopRows.map((row, idx) => `<div class="customer-detail-info"><span>#${idx + 1} ${row.name}</span><span>${row.soldQty} ชิ้น</span></div>`).join('')
+                        : '<div class="customer-detail-info"><span>ยังไม่มีข้อมูล</span></div>'}
                 </div>
-
-                <div style="margin-top: 30px;">
-                    <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 15px; color: var(--text-dark); font-size: 1.2rem;">💳 สรุปยอดที่ต้องเก็บจากลูกค้า (ราคาขาย)</h4>
-                    <div class="customer-detail-list">
-                        ${Object.entries(customerBilling)
-                            .sort((a, b) => b[1].total - a[1].total)
-                            .map(([name, data]) => `
-                                <div class="customer-detail-item">
-                                    <div class="customer-detail-header">
-                                        <div class="customer-detail-name">${name}</div>
-                                        <div class="customer-detail-total">${data.total} &#3647;</div>
-                                    </div>
-                                    <div class="customer-detail-info">
-                                        <span>ซื้อ ${data.count} ชิ้น</span>
-                                        <span>เฉลี่ย ${(data.total / Math.max(1, data.count)).toFixed(2)} &#3647;/ชิ้น</span>
-                                    </div>
-                                    <div class="qr-container">
-                                        <button class="btn btn-secondary" style="width: 100%;" onclick="generateQRFromEncoded('${encodeURIComponent(name)}', ${data.total})">
-                                            🔗 สร้าง QR Code สำหรับคิดเงิน
-                                        </button>
-                                    </div>
-                                </div>
-                            `).join('')}
+                <div class="customer-detail-item">
+                    <div class="customer-detail-header">
+                        <div class="customer-detail-name">Top 5 สะสมทั้งหมด</div>
                     </div>
+                    ${cumulativeTopRows.length > 0
+                        ? cumulativeTopRows.map((row, idx) => `<div class="customer-detail-info"><span>#${idx + 1} ${row.name}</span><span>${row.soldQty} ชิ้น</span></div>`).join('')
+                        : '<div class="customer-detail-info"><span>ยังไม่มีข้อมูล</span></div>'}
                 </div>
+            </div>
+        </div>
 
-                <div style="margin-top: 30px;">
-                    <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 15px; color: var(--text-dark); font-size: 1.2rem;">Sell-out Profit Forecast</h4>
-                    <div class="customer-detail-list">
-                        ${sellOutForecast
-                            .sort((a, b) => b.totalProfit - a.totalProfit)
-                            .map(row => `
-                                <div class="customer-detail-item">
-                                    <div class="customer-detail-header">
-                                        <div class="customer-detail-name">${row.name}</div>
-                                        <div class="customer-detail-total">${row.totalProfit} &#3647;</div>
-                                    </div>
-                                    <div class="customer-detail-info">
-                                        <span>Stock ${row.stock}</span>
-                                        <span>Profit/Unit ${row.profitPerUnit} &#3647;</span>
-                                    </div>
-                                </div>
-                            `).join('')}
-                    </div>
-                </div>
+        <div style="margin-top: 30px;">
+            <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 15px; color: var(--text-dark); font-size: 1.2rem;">📈 กำไรหากขายสต็อกหมด</h4>
+            <div class="customer-detail-list">
+                ${sellOutForecast
+                    .sort((a, b) => b.totalProfit - a.totalProfit)
+                    .map((row) => `
+                        <div class="customer-detail-item">
+                            <div class="customer-detail-header">
+                                <div class="customer-detail-name">${row.name}</div>
+                                <div class="customer-detail-total">${row.totalProfit} &#3647;</div>
+                            </div>
+                            <div class="customer-detail-info">
+                                <span>สต็อก ${row.stock}</span>
+                                <span>กำไร/ชิ้น ${row.profitPerUnit} &#3647;</span>
+                            </div>
+                        </div>
+                    `).join('')}
+            </div>
+        </div>
 
-                <div style="margin-top: 25px; padding: 20px; background: linear-gradient(135deg, #f8f9fa, #ffffff); border-radius: 12px; border: 2px solid var(--border);">
-                    <button class="btn btn-outline" onclick="exportReport()" style="width: 100%;">
-                        Export Profit Report (TXT)
-                    </button>
-                </div>
-            `;
+        <div style="margin-top: 25px; padding: 20px; background: linear-gradient(135deg, #f8f9fa, #ffffff); border-radius: 12px; border: 2px solid var(--border);">
+            <button class="btn btn-outline" onclick="exportReport()" style="width: 100%;">
+                Export Profit Report (TXT)
+            </button>
+        </div>
+    `;
+
+    showProductSalesView(productSalesView);
+}
+
+function generateQRFromEncoded(encodedName, amount) {
+    const name = decodeURIComponent(encodedName || '');
+    generateQR(name, amount);
+}
+
+function generateQR(customerName, amount) {
+    showToast('🔗 สร้าง QR Code สำเร็จ', 'success');
+    alert(`QR Code สำหรับ: ${customerName}\nยอดเงิน: ${amount} บาท\n\nในระบบจริง จะแสดง QR Code ที่สแกนชำระเงินได้ทันที`);
+}
+
+function exportProductRowsText(title, rows) {
+    let text = `--- ${title} ---\n`;
+    if (!rows || rows.length === 0) {
+        return `${text}(ไม่มีข้อมูล)\n\n`;
+    }
+    rows.forEach((row) => {
+        text += `${row.name}: sold=${row.soldQty}, revenue=${row.revenue} THB, cost=${row.cost} THB, profit=${row.profit} THB, margin=${row.marginPct.toFixed(2)}%\n`;
+    });
+    return `${text}\n`;
+}
+
+function exportReport() {
+    const reportMonth = document.getElementById('reportMonth').value;
+    if (!reportMonth) return;
+
+    const { year, month, monthStart, monthEnd } = getMonthRange(reportMonth);
+    const monthlyPurchases = purchases.filter((purchase) => {
+        const purchaseDate = new Date(purchase.date);
+        return purchaseDate >= monthStart && purchaseDate <= monthEnd;
+    });
+
+    const monthName = new Date(year, month - 1).toLocaleDateString('th-TH', { year: 'numeric', month: 'long' });
+    const monthlyProductRows = buildMonthlyProductRows(monthlyPurchases);
+    const cumulativeProductRows = buildCumulativeProductRows();
+    const monthlyRevenue = monthlyProductRows.reduce((sum, row) => sum + row.revenue, 0);
+    const monthlyCost = monthlyProductRows.reduce((sum, row) => sum + row.cost, 0);
+    const monthlyProfit = monthlyRevenue - monthlyCost;
+
+    const customerBilling = {};
+    monthlyPurchases.forEach((purchase) => {
+        const customerName = purchase.customerName || 'ไม่ระบุชื่อ';
+        const qty = getQty(purchase);
+        const lineRevenue = qty * getUnitPrice(purchase);
+        if (!customerBilling[customerName]) {
+            customerBilling[customerName] = { total: 0, count: 0 };
         }
+        customerBilling[customerName].total += lineRevenue;
+        customerBilling[customerName].count += qty;
+    });
 
+    const sellOutForecast = snacks.map((item) => {
+        const stock = Number(item.stock) || 0;
+        const sellPrice = Number(item.price) || 0;
+        const costPrice = Number(item.costPrice) || 0;
+        const profitPerUnit = sellPrice - costPrice;
+        const totalProfit = profitPerUnit * stock;
+        return { name: item.name, stock, profitPerUnit, totalProfit };
+    });
+    const potentialProfitAll = sellOutForecast.reduce((sum, row) => sum + row.totalProfit, 0);
 
-        // Generate QR Code
-        function generateQRFromEncoded(encodedName, amount) {
-            const name = decodeURIComponent(encodedName || '');
-            generateQR(name, amount);
-        }
+    let reportText = `=== Profit report ${monthName} ===\n\n`;
+    reportText += `Monthly revenue: ${monthlyRevenue} THB\n`;
+    reportText += `Monthly cost: ${monthlyCost} THB\n`;
+    reportText += `Monthly profit: ${monthlyProfit} THB\n`;
+    reportText += `Transactions: ${monthlyPurchases.length}\n`;
+    reportText += `Potential profit if all stock sold: ${potentialProfitAll} THB\n\n`;
 
-        function generateQR(customerName, amount) {
-            const qrData = `ชำระเงินสำหรับ: ${customerName}\nจำนวนเงิน: ${amount} บาท`;
-            
-            showToast(`🔗 สร้าง QR Code สำเร็จ`, 'success');
-            
-            alert(`QR Code สำหรับ: ${customerName}\nยอดเงิน: ${amount} บาท\n\nในระบบจริง จะแสดง QR Code ที่สแกนชำระเงินได้ทันที`);
-        }
+    reportText += '--- Customer billing (sell price) ---\n';
+    Object.entries(customerBilling)
+        .sort((a, b) => b[1].total - a[1].total)
+        .forEach(([name, data]) => {
+            reportText += `${name}: total=${data.total} THB, qty=${data.count}\n`;
+        });
+    reportText += '\n';
 
-        // Export report
-        function exportReport() {
-            const reportMonth = document.getElementById('reportMonth').value;
-            if (!reportMonth) return;
+    reportText += exportProductRowsText('Product sales (monthly)', monthlyProductRows);
+    reportText += exportProductRowsText('Product sales (cumulative)', cumulativeProductRows);
 
-            const [year, month] = reportMonth.split('-').map(Number);
-            const monthStart = new Date(year, month - 1, 1);
-            const monthEnd = new Date(year, month, 0, 23, 59, 59);
+    reportText += '--- Sell-out forecast by product ---\n';
+    sellOutForecast
+        .sort((a, b) => b.totalProfit - a.totalProfit)
+        .forEach((row) => {
+            reportText += `${row.name}: stock=${row.stock}, profit/unit=${row.profitPerUnit} THB, total=${row.totalProfit} THB\n`;
+        });
 
-            const monthlyPurchases = purchases.filter(purchase => {
-                const purchaseDate = new Date(purchase.date);
-                return purchaseDate >= monthStart && purchaseDate <= monthEnd;
-            });
+    const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `profit_report_${reportMonth}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 
-            const monthName = new Date(year, month - 1).toLocaleDateString('th-TH', { year: 'numeric', month: 'long' });
-
-            const monthlyRevenue = monthlyPurchases.reduce((sum, p) => {
-                const unitPrice = Number(p.unitPrice ?? p.price) || 0;
-                return sum + unitPrice;
-            }, 0);
-            const monthlyCost = monthlyPurchases.reduce((sum, p) => {
-                const unitCost = Number(p.unitCost ?? p.snack?.costPrice) || 0;
-                return sum + unitCost;
-            }, 0);
-            const monthlyProfit = monthlyPurchases.reduce((sum, p) => {
-                if (Number.isFinite(Number(p.profit))) return sum + Number(p.profit);
-                const unitPrice = Number(p.unitPrice ?? p.price) || 0;
-                const unitCost = Number(p.unitCost ?? p.snack?.costPrice) || 0;
-                return sum + (unitPrice - unitCost);
-            }, 0);
-            const customerBilling = {};
-
-            monthlyPurchases.forEach(p => {
-                const customerName = p.customerName || 'ไม่ระบุชื่อ';
-                const unitPrice = Number(p.unitPrice ?? p.price) || 0;
-                if (!customerBilling[customerName]) {
-                    customerBilling[customerName] = { total: 0, count: 0 };
-                }
-                customerBilling[customerName].total += unitPrice;
-                customerBilling[customerName].count += 1;
-            });
-
-            const sellOutForecast = snacks.map(item => {
-                const stock = Number(item.stock) || 0;
-                const sellPrice = Number(item.price) || 0;
-                const costPrice = Number(item.costPrice) || 0;
-                const profitPerUnit = sellPrice - costPrice;
-                const totalProfit = profitPerUnit * stock;
-                return { name: item.name, stock, profitPerUnit, totalProfit };
-            });
-            const potentialProfitAll = sellOutForecast.reduce((sum, row) => sum + row.totalProfit, 0);
-
-            let reportText = `=== Profit report ${monthName} ===\n\n`;
-            reportText += `Monthly revenue: ${monthlyRevenue} THB\n`;
-            reportText += `Monthly cost: ${monthlyCost} THB\n`;
-            reportText += `Monthly profit: ${monthlyProfit} THB\n`;
-            reportText += `Transactions: ${monthlyPurchases.length}\n`;
-            reportText += `Potential profit if all stock sold: ${potentialProfitAll} THB\n\n`;
-
-            reportText += '--- Customer billing (sell price) ---\n';
-            Object.entries(customerBilling)
-                .sort((a, b) => b[1].total - a[1].total)
-                .forEach(([name, data]) => {
-                    reportText += `${name}: total=${data.total} THB, qty=${data.count}\n`;
-                });
-            reportText += '\n';
-
-            reportText += '--- Sell-out forecast by product ---\n';
-
-            sellOutForecast
-                .sort((a, b) => b.totalProfit - a.totalProfit)
-                .forEach(row => {
-                    reportText += `${row.name}: stock=${row.stock}, profit/unit=${row.profitPerUnit} THB, total=${row.totalProfit} THB\n`;
-                });
-
-            const blob = new Blob([reportText], { type: 'text/plain;charset=utf-8' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `profit_report_${reportMonth}.txt`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-
-            showToast('✅ ส่งออกรายงานสำเร็จ!', 'success');
-        }
-
-
-        // Show toast notification
-        function showToast(message, type = 'success') {
-            const existingToast = document.querySelector('.toast');
-            if (existingToast) {
-                existingToast.remove();
-            }
-            
-            const toast = document.createElement('div');
-            toast.className = 'toast';
-            toast.textContent = message;
-            
-            if (type === 'warning') {
-                toast.style.background = 'linear-gradient(135deg, var(--warning), #F2B84B)';
-            } else if (type === 'info') {
-                toast.style.background = 'linear-gradient(135deg, var(--secondary), #3FBDB5)';
-            }
-            
-            document.body.appendChild(toast);
-            
-            setTimeout(() => {
-                toast.style.animation = 'slideInFromRight 0.4s ease-out reverse';
-                setTimeout(() => toast.remove(), 400);
-            }, 3000);
-        }
-
-        // Save purchases to localStorage
-        function savePurchases() {
-            localStorage.setItem('snackPurchases', JSON.stringify(purchases));
-            scheduleStateSync();
-        }
-
-        // Load purchases from localStorage
-        function loadPurchases() {
-            const saved = localStorage.getItem('snackPurchases');
-            if (saved) {
-                purchases = JSON.parse(saved).map(p => {
-                    const unitPrice = Number(p.unitPrice ?? p.price) || 0;
-                    const unitCost = Number(p.unitCost ?? p.snack?.costPrice) || 0;
-                    const profit = Number.isFinite(Number(p.profit))
-                        ? Number(p.profit)
-                        : (unitPrice - unitCost);
-                    return {
-                        ...p,
-                        unitPrice,
-                        unitCost,
-                        revenue: Number(p.revenue ?? unitPrice) || 0,
-                        cost: Number(p.cost ?? unitCost) || 0,
-                        profit
-                    };
-                });
-            }
-        }
+    showToast('✅ ส่งออกรายงานสำเร็จ!', 'success');
+}

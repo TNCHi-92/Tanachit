@@ -437,6 +437,7 @@
                         <span>${s.name}</span>
                         <span class="manage-item-price">${s.price} ฿</span>
                         <span style="font-size: 0.85rem; color: var(--text-light);">ทุน ${Number(s.costPrice) || 0} ฿</span>
+                        <span style="font-size: 0.85rem; color: var(--text-light);">ขายสะสม ${Number(s.totalSold) || 0} ชิ้น</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.85rem; color: var(--text-light);">คลัง:</span>
@@ -450,15 +451,15 @@
             `).join('');
         }
 
-        function addOrUpdateSnack() {
+        async function addOrUpdateSnack() {
             if (editingSnackId !== null) {
-                updateSnack(editingSnackId);
+                await updateSnack(editingSnackId);
                 return;
             }
-            addSnack();
+            await addSnack();
         }
 
-        function addSnack() {
+        async function addSnack() {
             if (!ensureCanManageData()) return;
             const name = document.getElementById('newSnackName').value.trim();
             const price = parseInt(document.getElementById('newSnackPrice').value);
@@ -471,8 +472,15 @@
             if (costPrice < 0) { showToast('⚠️ กรุณาใส่ราคาทุนที่ถูกต้อง', 'warning'); return; }
 
             const newId = snacks.length > 0 ? Math.max(...snacks.map(s => s.id)) + 1 : 1;
-            snacks.push({ id: newId, name, image: pendingSnackImage, emoji: '', price, costPrice, stock });
+            snacks.push({ id: newId, name, image: pendingSnackImage, emoji: '', price, sellPrice: price, costPrice, totalSold: 0, stock });
+            const newSnack = snacks.find(s => s.id === newId);
             saveSnacks();
+            if (newSnack) {
+                const ok = await syncSnackNow(newSnack);
+                if (!ok) {
+                    void flushStateSync();
+                }
+            }
             addAuditLog('snack.create', `เพิ่มสินค้า ${name}`, { id: newId, price, costPrice, stock });
             renderManageSnackList();
             renderSnackGrid();
@@ -484,7 +492,7 @@
             showToast(`✅ เพิ่ม ${name} สำเร็จ!`, 'success');
         }
 
-        function updateSnack(id) {
+        async function updateSnack(id) {
             if (!ensureCanManageData()) return;
             const snack = snacks.find(s => s.id === id);
             if (!snack) return;
@@ -493,6 +501,7 @@
             const price = parseInt(document.getElementById('newSnackPrice').value);
             const costPrice = parseInt(document.getElementById('newSnackCost').value) || 0;
             const stock = parseInt(document.getElementById('newSnackStock').value);
+            const oldPrice = Number(snack.price) || 0;
 
             if (!name) { showToast('⚠️ กรุณาใส่ชื่อสินค้า', 'warning'); return; }
             if (!price || price <= 0) { showToast('⚠️ กรุณาใส่ราคาที่ถูกต้อง', 'warning'); return; }
@@ -501,6 +510,7 @@
 
             snack.name = name;
             snack.price = price;
+            snack.sellPrice = price;
             snack.costPrice = costPrice;
             snack.stock = stock;
 
@@ -510,6 +520,17 @@
             }
 
             saveSnacks();
+            const ok = await syncSnackNow(snack);
+            if (!ok) {
+                void flushStateSync();
+            }
+            if (oldPrice !== price) {
+                addAuditLog(
+                    'snack.price.change',
+                    `เปลี่ยนราคา ${name}: ${oldPrice} -> ${price} บาท`,
+                    { id, oldPrice, newPrice: price }
+                );
+            }
             addAuditLog('snack.update', `แก้ไขสินค้า ${name}`, { id, price, costPrice, stock });
             renderManageSnackList();
             renderSnackGrid();
@@ -524,6 +545,7 @@
             if (snack) {
                 snack.stock = Math.max(0, parseInt(value) || 0);
                 saveSnacks();
+                void syncSnackNow(snack);
                 addAuditLog('snack.stock.set', `ปรับสต็อก ${snack.name}`, { id, stock: snack.stock });
                 renderSnackGrid();
                 refreshProfitTabIfVisible();
@@ -536,6 +558,7 @@
             if (snack) {
                 snack.stock = (snack.stock || 0) + amount;
                 saveSnacks();
+                void syncSnackNow(snack);
                 addAuditLog('snack.stock.add', `เพิ่มสต็อก ${snack.name}`, { id, amount, stock: snack.stock });
                 renderManageSnackList();
                 renderSnackGrid();
@@ -563,6 +586,7 @@
             snacks = normalizeSnackData(snacks);
             localStorage.setItem('snackItems', JSON.stringify(snacks));
             scheduleStateSync();
+            void flushStateSync();
         }
 
         // --- Customer CRUD ---
@@ -692,4 +716,5 @@
         function saveCustomers() {
             localStorage.setItem('customerList', JSON.stringify(customers));
             scheduleStateSync();
+            void flushStateSync();
         }

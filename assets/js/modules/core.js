@@ -50,9 +50,11 @@
             if (!Array.isArray(list)) return [];
             return list.map(item => ({
                 ...item,
-                price: Number(item.price) || 0,
-                stock: Number(item.stock) || 0,
-                costPrice: Number(item.costPrice) || 0
+                price: Math.max(0, Number(item.sellPrice ?? item.price) || 0),
+                sellPrice: Math.max(0, Number(item.sellPrice ?? item.price) || 0),
+                stock: Math.max(0, Number(item.stock) || 0),
+                costPrice: Math.max(0, Number(item.costPrice) || 0),
+                totalSold: Math.max(0, Number(item.totalSold) || 0)
             }));
         }
 
@@ -76,17 +78,72 @@
             syncTimer = setTimeout(pushStateToServer, 400);
         }
 
-        async function pushStateToServer() {
-            if (!remoteSyncEnabled) return;
+        async function pushStateToServer(options = {}) {
+            const force = options && options.force === true;
+            const silent = options && options.silent === true;
+            if (!remoteSyncEnabled && !force) return false;
             try {
-                await fetch('/api/state', {
+                const res = await fetch('/api/state', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ state: buildCurrentState() })
                 });
+                if (!res.ok) {
+                    let msg = `HTTP ${res.status}`;
+                    try {
+                        const body = await res.json();
+                        if (body?.error) msg = body.error;
+                        if (body?.detail) msg = `${msg} (${body.detail})`;
+                        if (Array.isArray(body?.details) && body.details.length > 0) {
+                            msg = `${msg} (${body.details[0]})`;
+                        }
+                    } catch (_e) {
+                        // ignore parse error
+                    }
+                    if (!silent) showToast(`⚠️ บันทึกฐานข้อมูลไม่สำเร็จ: ${msg}`, 'warning');
+                    return false;
+                }
+                remoteSyncEnabled = true;
+                return true;
             } catch (err) {
                 remoteSyncEnabled = false;
-                showToast('⚠️ ซิงค์ฐานข้อมูลไม่ได้ กำลังใช้โหมด local ชั่วคราว', 'warning');
+                if (!silent) showToast('⚠️ ซิงค์ฐานข้อมูลไม่ได้ กำลังใช้โหมด local ชั่วคราว', 'warning');
+                return false;
+            }
+        }
+
+        function flushStateSync() {
+            if (syncTimer) {
+                clearTimeout(syncTimer);
+                syncTimer = null;
+            }
+            return pushStateToServer({ force: true, silent: false });
+        }
+
+        async function syncSnackNow(snack) {
+            if (!snack || !snack.id) return false;
+            try {
+                const res = await fetch(`/api/snacks/${encodeURIComponent(snack.id)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ snack })
+                });
+                if (!res.ok) {
+                    let msg = `HTTP ${res.status}`;
+                    try {
+                        const body = await res.json();
+                        if (body?.error) msg = body.error;
+                    } catch (_e) {
+                        // ignore parse error
+                    }
+                    showToast(`⚠️ อัปเดตราคาสินค้าไม่สำเร็จ: ${msg}`, 'warning');
+                    return false;
+                }
+                remoteSyncEnabled = true;
+                return true;
+            } catch (_err) {
+                showToast('⚠️ เชื่อมต่อฐานข้อมูลไม่ได้ขณะอัปเดตสินค้า', 'warning');
+                return false;
             }
         }
 
@@ -127,11 +184,13 @@
         function saveUsers() {
             localStorage.setItem('snackUsers', JSON.stringify(users));
             scheduleStateSync();
+            void flushStateSync();
         }
 
         function saveAuditLogs() {
             localStorage.setItem('snackAuditLogs', JSON.stringify(auditLogs));
             scheduleStateSync();
+            void flushStateSync();
         }
 
         function canManageData() {
@@ -410,6 +469,7 @@
                         ${getSnackDisplayHTML(snack, 'grid')}
                         <div class="snack-name">${snack.name}</div>
                         <div class="snack-price">${snack.price} ฿</div>
+                        <div class="snack-sold-total">ขายสะสม ${Number(snack.totalSold) || 0} ชิ้น</div>
                         <div class="snack-stock ${stockClass}">${stockText}</div>
                     </div>
                 `;
@@ -585,6 +645,7 @@
 
             // Decrease stock
             snackInList.stock -= totalQty;
+            snackInList.totalSold = (Number(snackInList.totalSold) || 0) + totalQty;
             saveSnacks();
 
             savePurchases();

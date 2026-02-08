@@ -14,10 +14,11 @@ const appVersion = "1.1.0";
 const backupDir = process.env.BACKUP_DIR ? path.resolve(process.env.BACKUP_DIR) : null;
 const backupIntervalMin = Number(process.env.BACKUP_INTERVAL_MIN || 0);
 
-app.use(express.json({ limit: "25mb" }));
+app.use(express.json({ limit: "100mb" }));
 
 let pool = null;
 let fallbackState = sanitizeState({});
+let writeQueue = Promise.resolve();
 if (dbUrl) {
   pool = new Pool({
     connectionString: dbUrl,
@@ -27,6 +28,39 @@ if (dbUrl) {
   pool.on("error", (error) => {
     console.error("Postgres pool error:", error.message);
   });
+}
+
+function isDeadlockError(error) {
+  return Boolean(
+    error &&
+    (error.code === "40P01" || /deadlock/i.test(asString(error.message, "")))
+  );
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withDeadlockRetry(fn, attempts = 3) {
+  let lastError = null;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (!isDeadlockError(error) || i === attempts - 1) {
+        throw error;
+      }
+      await sleep(50 * (i + 1));
+    }
+  }
+  throw lastError || new Error("Unknown write failure");
+}
+
+function enqueueWrite(task) {
+  const run = writeQueue.then(task, task);
+  writeQueue = run.catch(() => undefined);
+  return run;
 }
 
 async function initDb() {
@@ -41,6 +75,7 @@ async function initDb() {
       price INTEGER NOT NULL,
       cost_price INTEGER NOT NULL DEFAULT 0,
       sell_price INTEGER NOT NULL DEFAULT 0,
+      total_sold INTEGER NOT NULL DEFAULT 0,
       stock INTEGER NOT NULL DEFAULT 0
     );
 
@@ -101,7 +136,9 @@ async function initDb() {
 
     ALTER TABLE snacks ADD COLUMN IF NOT EXISTS cost_price INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE snacks ADD COLUMN IF NOT EXISTS sell_price INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE snacks ADD COLUMN IF NOT EXISTS total_sold INTEGER NOT NULL DEFAULT 0;
     UPDATE snacks SET sell_price = price WHERE sell_price = 0;
+    UPDATE snacks SET total_sold = 0 WHERE total_sold IS NULL;
 
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS qty INTEGER NOT NULL DEFAULT 1;
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS unit_cost INTEGER NOT NULL DEFAULT 0;
@@ -112,6 +149,16 @@ async function initDb() {
     UPDATE purchases
     SET unit_price = price, line_revenue = price, line_profit = price
     WHERE unit_price = 0 AND qty = 1;
+
+    UPDATE snacks s
+    SET total_sold = sub.sold_qty
+    FROM (
+      SELECT snack_id, COALESCE(SUM(qty), 0)::int AS sold_qty
+      FROM purchases
+      WHERE snack_id IS NOT NULL
+      GROUP BY snack_id
+    ) sub
+    WHERE s.id = sub.snack_id AND s.total_sold = 0;
   `);
 
   await migrateLegacyStateIfNeeded();
@@ -145,14 +192,16 @@ function normalizeSnack(snack, idx) {
   const id = asInt(snack?.id, idx + 1);
   const sellPrice = asInt(snack?.sellPrice ?? snack?.price, 0);
   const costPrice = asInt(snack?.costPrice, 0);
+  const totalSold = asInt(snack?.totalSold, 0);
   return {
     id,
     name: asString(snack?.name, `Snack ${id}`),
     emoji: snack?.emoji ? asString(snack.emoji) : null,
     image: snack?.image ? asString(snack.image) : null,
-    price: sellPrice,
+    price: Math.max(0, sellPrice),
     costPrice: Math.max(0, costPrice),
     sellPrice: Math.max(0, sellPrice),
+    totalSold: Math.max(0, totalSold),
     stock: Math.max(0, asInt(snack?.stock, 0))
   };
 }
@@ -212,6 +261,7 @@ function validateState(state) {
     if (asInt(s?.price, 0) < 0) errors.push(`snacks[${i}] price must be >= 0`);
     if (asInt(s?.stock, 0) < 0) errors.push(`snacks[${i}] stock must be >= 0`);
     if (asInt(s?.costPrice, 0) < 0) errors.push(`snacks[${i}] costPrice must be >= 0`);
+    if (asInt(s?.totalSold, 0) < 0) errors.push(`snacks[${i}] totalSold must be >= 0`);
   });
 
   state.customers.forEach((c, i) => {
@@ -266,11 +316,66 @@ function normalizePurchase(purchase, idx) {
 }
 
 async function writeStateTx(client, state) {
-  const snacks = state.snacks.map(normalizeSnack);
-  const customers = state.customers.map(normalizeCustomer).filter((c) => c.name);
-  const users = ensureAtLeastOneAdmin(state.users).map(normalizeUser);
-  const purchases = state.purchases.map(normalizePurchase);
-  const auditLogs = state.auditLogs.map(normalizeAuditLog).slice(0, 200000);
+  const snacksRaw = state.snacks.map(normalizeSnack);
+  const customersRaw = state.customers.map(normalizeCustomer).filter((c) => c.name);
+  const usersRaw = ensureAtLeastOneAdmin(state.users).map(normalizeUser);
+  const purchasesRaw = state.purchases.map(normalizePurchase);
+  const auditLogsRaw = state.auditLogs.map(normalizeAuditLog).slice(0, 200000);
+
+  const snackSeen = new Set();
+  const snacks = [];
+  for (const s of snacksRaw) {
+    if (snackSeen.has(s.id)) continue;
+    snackSeen.add(s.id);
+    snacks.push(s);
+  }
+
+  const customerSeen = new Set();
+  const customers = [];
+  for (const c of customersRaw) {
+    if (customerSeen.has(c.name)) continue;
+    customerSeen.add(c.name);
+    customers.push(c);
+  }
+
+  const userSeen = new Set();
+  let maxUserId = usersRaw.reduce((m, u) => Math.max(m, Number(u.id) || 0), 0);
+  const users = [];
+  for (const u of usersRaw) {
+    let userId = Number(u.id) || 0;
+    if (userId <= 0) userId = ++maxUserId;
+    while (userSeen.has(userId)) userId = ++maxUserId;
+    userSeen.add(userId);
+    users.push({ ...u, id: userId });
+  }
+
+  const purchaseIdSeen = new Set();
+  const purchases = purchasesRaw.map((p, idx) => {
+    const baseId = asString(p.id, `purchase_${idx}`);
+    let candidate = baseId;
+    let n = 1;
+    while (purchaseIdSeen.has(candidate)) {
+      candidate = `${baseId}__dup${n}`;
+      n += 1;
+    }
+    purchaseIdSeen.add(candidate);
+    if (candidate === baseId) return p;
+    return { ...p, id: candidate };
+  });
+
+  const auditIdSeen = new Set();
+  const auditLogs = auditLogsRaw.map((row, idx) => {
+    const baseId = asString(row.id, `audit_${idx}`);
+    let candidate = baseId;
+    let n = 1;
+    while (auditIdSeen.has(candidate)) {
+      candidate = `${baseId}__dup${n}`;
+      n += 1;
+    }
+    auditIdSeen.add(candidate);
+    if (candidate === baseId) return row;
+    return { ...row, id: candidate };
+  });
 
   await client.query("DELETE FROM audit_logs");
   await client.query("DELETE FROM purchases");
@@ -280,8 +385,8 @@ async function writeStateTx(client, state) {
 
   for (const snack of snacks) {
     await client.query(
-      "INSERT INTO snacks (id, name, emoji, image, price, cost_price, sell_price, stock) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-      [snack.id, snack.name, snack.emoji, snack.image, snack.price, snack.costPrice, snack.sellPrice, snack.stock]
+      "INSERT INTO snacks (id, name, emoji, image, price, cost_price, sell_price, total_sold, stock) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+      [snack.id, snack.name, snack.emoji, snack.image, snack.price, snack.costPrice, snack.sellPrice, snack.totalSold, snack.stock]
     );
   }
 
@@ -340,7 +445,7 @@ async function writeStateTx(client, state) {
 
 async function readState() {
   const [snackRes, customerRes, userRes, purchaseRes, auditRes] = await Promise.all([
-    pool.query("SELECT id, name, emoji, image, price, cost_price, sell_price, stock FROM snacks ORDER BY id ASC"),
+    pool.query("SELECT id, name, emoji, image, price, cost_price, sell_price, total_sold, stock FROM snacks ORDER BY id ASC"),
     pool.query("SELECT name, shift FROM customers ORDER BY shift ASC, name ASC"),
     pool.query("SELECT id, display_name, aliases, role FROM users ORDER BY id ASC"),
     pool.query(
@@ -367,9 +472,10 @@ async function readState() {
       name: r.name,
       emoji: r.emoji,
       image: r.image,
-      price: Number(r.price),
+      price: Number(r.sell_price ?? r.price),
       sellPrice: Number(r.sell_price ?? r.price),
       costPrice: Number(r.cost_price ?? 0),
+      totalSold: Number(r.total_sold ?? 0),
       stock: Number(r.stock)
     })),
     customers: customerRes.rows.map((r) => ({
@@ -418,6 +524,49 @@ async function readState() {
       at: new Date(r.created_at).toISOString()
     }))
   };
+}
+
+async function upsertSingleSnack(snackInput, idFromPath) {
+  const normalized = normalizeSnack({ ...snackInput, id: idFromPath }, 0);
+
+  if (!pool) {
+    const current = sanitizeState(fallbackState);
+    const idx = current.snacks.findIndex((s) => Number(s.id) === Number(normalized.id));
+    if (idx >= 0) current.snacks[idx] = { ...current.snacks[idx], ...normalized };
+    else current.snacks.push(normalized);
+    fallbackState = current;
+    return normalized;
+  }
+
+  await pool.query(
+    `
+    INSERT INTO snacks (id, name, emoji, image, price, cost_price, sell_price, total_sold, stock)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    ON CONFLICT (id) DO UPDATE
+    SET
+      name = EXCLUDED.name,
+      emoji = EXCLUDED.emoji,
+      image = EXCLUDED.image,
+      price = EXCLUDED.price,
+      cost_price = EXCLUDED.cost_price,
+      sell_price = EXCLUDED.sell_price,
+      total_sold = EXCLUDED.total_sold,
+      stock = EXCLUDED.stock
+    `,
+    [
+      normalized.id,
+      normalized.name,
+      normalized.emoji,
+      normalized.image,
+      normalized.price,
+      normalized.costPrice,
+      normalized.sellPrice,
+      normalized.totalSold,
+      normalized.stock
+    ]
+  );
+
+  return normalized;
 }
 
 async function hasAnyNormalizedData() {
@@ -591,21 +740,43 @@ app.put("/api/state", async (req, res) => {
       return res.json({ ok: true, mode: "memory" });
     }
 
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-      await writeStateTx(client, state);
-      await client.query("COMMIT");
-    } catch (txError) {
-      await client.query("ROLLBACK");
-      throw txError;
-    } finally {
-      client.release();
-    }
+    await enqueueWrite(() =>
+      withDeadlockRetry(async () => {
+        const client = await pool.connect();
+        try {
+          await client.query("BEGIN");
+          await writeStateTx(client, state);
+          await client.query("COMMIT");
+        } catch (txError) {
+          await client.query("ROLLBACK");
+          throw txError;
+        } finally {
+          client.release();
+        }
+      }, 4)
+    );
 
     return res.json({ ok: true, mode: "postgres" });
   } catch (error) {
-    return res.status(500).json({ error: "Failed to write state" });
+    console.error("PUT /api/state failed:", error?.message || error);
+    return res.status(500).json({ error: "Failed to write state", detail: error?.message || "Unknown error" });
+  }
+});
+
+app.put("/api/snacks/:id", async (req, res) => {
+  try {
+    const snackId = asInt(req.params.id, 0);
+    if (!snackId || snackId <= 0) {
+      return res.status(400).json({ error: "Invalid snack id" });
+    }
+
+    const payload = req.body?.snack && typeof req.body.snack === "object" ? req.body.snack : req.body;
+    const snack = await enqueueWrite(() =>
+      withDeadlockRetry(() => upsertSingleSnack(payload || {}, snackId), 4)
+    );
+    return res.json({ ok: true, snack });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to update snack", detail: error?.message || "Unknown error" });
   }
 });
 
