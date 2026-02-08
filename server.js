@@ -33,6 +33,8 @@ async function initDb() {
       emoji TEXT,
       image TEXT,
       price INTEGER NOT NULL,
+      cost_price INTEGER NOT NULL DEFAULT 0,
+      sell_price INTEGER NOT NULL DEFAULT 0,
       stock INTEGER NOT NULL DEFAULT 0
     );
 
@@ -56,6 +58,12 @@ async function initDb() {
       snack_image TEXT,
       snack_stock INTEGER,
       price INTEGER NOT NULL,
+      qty INTEGER NOT NULL DEFAULT 1,
+      unit_cost INTEGER NOT NULL DEFAULT 0,
+      unit_price INTEGER NOT NULL DEFAULT 0,
+      line_revenue INTEGER NOT NULL DEFAULT 0,
+      line_cost INTEGER NOT NULL DEFAULT 0,
+      line_profit INTEGER NOT NULL DEFAULT 0,
       purchased_at TIMESTAMPTZ NOT NULL
     );
 
@@ -67,6 +75,22 @@ async function initDb() {
       payload JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE snacks ADD COLUMN IF NOT EXISTS cost_price INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE snacks ADD COLUMN IF NOT EXISTS sell_price INTEGER NOT NULL DEFAULT 0;
+    UPDATE snacks SET sell_price = price WHERE sell_price = 0;
+
+    ALTER TABLE purchases ADD COLUMN IF NOT EXISTS qty INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE purchases ADD COLUMN IF NOT EXISTS unit_cost INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE purchases ADD COLUMN IF NOT EXISTS unit_price INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE purchases ADD COLUMN IF NOT EXISTS line_revenue INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE purchases ADD COLUMN IF NOT EXISTS line_cost INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE purchases ADD COLUMN IF NOT EXISTS line_profit INTEGER NOT NULL DEFAULT 0;
+    UPDATE purchases
+    SET unit_price = price, line_revenue = price, line_profit = price
+    WHERE unit_price = 0 AND qty = 1;
   `);
 
   await migrateLegacyStateIfNeeded();
@@ -97,12 +121,16 @@ function asInt(value, fallback = 0) {
 
 function normalizeSnack(snack, idx) {
   const id = asInt(snack?.id, idx + 1);
+  const sellPrice = asInt(snack?.sellPrice ?? snack?.price, 0);
+  const costPrice = asInt(snack?.costPrice, 0);
   return {
     id,
     name: asString(snack?.name, `Snack ${id}`),
     emoji: snack?.emoji ? asString(snack.emoji) : null,
     image: snack?.image ? asString(snack.image) : null,
-    price: asInt(snack?.price, 0),
+    price: sellPrice,
+    costPrice: Math.max(0, costPrice),
+    sellPrice: Math.max(0, sellPrice),
     stock: Math.max(0, asInt(snack?.stock, 0))
   };
 }
@@ -129,6 +157,12 @@ function normalizeUser(user, idx) {
 function normalizePurchase(purchase, idx) {
   const snack = purchase?.snack && typeof purchase.snack === "object" ? purchase.snack : {};
   const iso = new Date(purchase?.date || Date.now()).toISOString();
+  const qty = Math.max(1, asInt(purchase?.qty, 1));
+  const unitPrice = Math.max(0, asInt(purchase?.unitPrice ?? purchase?.price ?? snack?.sellPrice ?? snack?.price, 0));
+  const unitCost = Math.max(0, asInt(purchase?.unitCost ?? snack?.costPrice, 0));
+  const lineRevenue = qty * unitPrice;
+  const lineCost = qty * unitCost;
+  const lineProfit = lineRevenue - lineCost;
 
   return {
     id: asString(purchase?.id, `${Date.now()}_${idx}`),
@@ -138,7 +172,13 @@ function normalizePurchase(purchase, idx) {
     snackEmoji: snack?.emoji ? asString(snack.emoji) : null,
     snackImage: snack?.image ? asString(snack.image) : null,
     snackStock: snack?.stock !== undefined && snack?.stock !== null ? asInt(snack.stock, null) : null,
-    price: asInt(purchase?.price ?? snack?.price, 0),
+    price: unitPrice,
+    qty,
+    unitCost,
+    unitPrice,
+    lineRevenue,
+    lineCost,
+    lineProfit,
     purchasedAt: iso
   };
 }
@@ -156,8 +196,8 @@ async function writeStateTx(client, state) {
 
   for (const snack of snacks) {
     await client.query(
-      "INSERT INTO snacks (id, name, emoji, image, price, stock) VALUES ($1, $2, $3, $4, $5, $6)",
-      [snack.id, snack.name, snack.emoji, snack.image, snack.price, snack.stock]
+      "INSERT INTO snacks (id, name, emoji, image, price, cost_price, sell_price, stock) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      [snack.id, snack.name, snack.emoji, snack.image, snack.price, snack.costPrice, snack.sellPrice, snack.stock]
     );
   }
 
@@ -179,8 +219,9 @@ async function writeStateTx(client, state) {
     await client.query(
       `
       INSERT INTO purchases (
-        id, customer_name, snack_id, snack_name, snack_emoji, snack_image, snack_stock, price, purchased_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
+        id, customer_name, snack_id, snack_name, snack_emoji, snack_image, snack_stock, price,
+        qty, unit_cost, unit_price, line_revenue, line_cost, line_profit, purchased_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::timestamptz)
       `,
       [
         purchase.id,
@@ -191,6 +232,12 @@ async function writeStateTx(client, state) {
         purchase.snackImage,
         purchase.snackStock,
         purchase.price,
+        purchase.qty,
+        purchase.unitCost,
+        purchase.unitPrice,
+        purchase.lineRevenue,
+        purchase.lineCost,
+        purchase.lineProfit,
         purchase.purchasedAt
       ]
     );
@@ -199,12 +246,13 @@ async function writeStateTx(client, state) {
 
 async function readState() {
   const [snackRes, customerRes, userRes, purchaseRes] = await Promise.all([
-    pool.query("SELECT id, name, emoji, image, price, stock FROM snacks ORDER BY id ASC"),
+    pool.query("SELECT id, name, emoji, image, price, cost_price, sell_price, stock FROM snacks ORDER BY id ASC"),
     pool.query("SELECT name, shift FROM customers ORDER BY shift ASC, name ASC"),
     pool.query("SELECT id, display_name, aliases FROM users ORDER BY id ASC"),
     pool.query(
       `
-      SELECT id, customer_name, snack_id, snack_name, snack_emoji, snack_image, snack_stock, price, purchased_at
+      SELECT id, customer_name, snack_id, snack_name, snack_emoji, snack_image, snack_stock, price,
+             qty, unit_cost, unit_price, line_revenue, line_cost, line_profit, purchased_at
       FROM purchases
       ORDER BY purchased_at DESC, id DESC
       `
@@ -218,6 +266,8 @@ async function readState() {
       emoji: r.emoji,
       image: r.image,
       price: Number(r.price),
+      sellPrice: Number(r.sell_price ?? r.price),
+      costPrice: Number(r.cost_price ?? 0),
       stock: Number(r.stock)
     })),
     customers: customerRes.rows.map((r) => ({
@@ -240,8 +290,16 @@ async function readState() {
           emoji: r.snack_emoji,
           image: r.snack_image,
           stock: r.snack_stock !== null ? Number(r.snack_stock) : null,
-          price: Number(r.price)
+          price: Number(r.unit_price ?? r.price),
+          sellPrice: Number(r.unit_price ?? r.price),
+          costPrice: Number(r.unit_cost ?? 0)
         },
+        qty: Number(r.qty ?? 1),
+        unitCost: Number(r.unit_cost ?? 0),
+        unitPrice: Number(r.unit_price ?? r.price),
+        revenue: Number(r.line_revenue ?? r.price),
+        cost: Number(r.line_cost ?? 0),
+        profit: Number(r.line_profit ?? Number(r.price)),
         price: Number(r.price),
         date: new Date(r.purchased_at).toISOString()
       };
@@ -341,9 +399,18 @@ app.put("/api/state", async (req, res) => {
   }
 });
 
-app.use(express.static(process.cwd()));
+app.use(
+  express.static(process.cwd(), {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith(".html")) {
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+      }
+    }
+  })
+);
 
 app.get("/", (_req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.sendFile(path.join(process.cwd(), "pro.html"));
 });
 

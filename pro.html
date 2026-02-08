@@ -1492,8 +1492,9 @@
                         <button type="button" class="btn-clipboard" onclick="pasteImageFromClipboard()">วางจาก Ctrl+V</button>
                     </div>
                     <input type="text" id="newSnackName" placeholder="ชื่อสินค้า">
-                    <input type="number" id="newSnackPrice" placeholder="ราคา" min="1" style="max-width: 100px;">
-                    <input type="number" id="newSnackStock" placeholder="จำนวน" min="0" style="max-width: 100px;">
+                    <input type="number" id="newSnackPrice" placeholder="???????" min="1" style="max-width: 110px;">
+                    <input type="number" id="newSnackCost" placeholder="???????" min="0" style="max-width: 110px;">
+                    <input type="number" id="newSnackStock" placeholder="?????" min="0" style="max-width: 100px;">
                     <button class="btn btn-primary" id="saveSnackBtn" onclick="addOrUpdateSnack()">+ เพิ่ม</button>
                     <button class="btn btn-outline" id="cancelEditSnackBtn" onclick="cancelEditSnack()" style="display: none;">ยกเลิก</button>
                 </div>
@@ -1532,6 +1533,7 @@
             <div class="price-display">
                 <div class="price-label">ราคา</div>
                 <div class="price-value"><span id="selectedSnackPrice"></span> บาท</div>
+                <div style="font-size: 0.9rem; color: var(--text-light); margin-top: 6px;">??? <span id="selectedSnackCost">0</span> ? | ????/???? <span id="selectedSnackProfit">0</span> ?</div>
             </div>
 
             <div class="search-box">
@@ -1620,8 +1622,48 @@
             { name: 'นิว', shift: 'D' }
         ];
 
+        function asAmount(value, fallback = 0) {
+            const n = Number(value);
+            return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : fallback;
+        }
+
+        function normalizeSnackForPricing(snack) {
+            const sellPrice = asAmount(snack?.sellPrice ?? snack?.price, 0);
+            return {
+                ...snack,
+                price: sellPrice,
+                sellPrice,
+                costPrice: asAmount(snack?.costPrice, 0)
+            };
+        }
+
+        function normalizePurchaseForPricing(purchase) {
+            const snack = purchase?.snack || {};
+            const qty = Math.max(1, asAmount(purchase?.qty, 1));
+            const unitPrice = asAmount(purchase?.unitPrice ?? purchase?.price ?? snack?.sellPrice ?? snack?.price, 0);
+            const unitCost = asAmount(purchase?.unitCost ?? snack?.costPrice, 0);
+            const revenue = qty * unitPrice;
+            const cost = qty * unitCost;
+            return {
+                ...purchase,
+                qty,
+                unitPrice,
+                unitCost,
+                price: unitPrice,
+                revenue,
+                cost,
+                profit: revenue - cost,
+                snack: {
+                    ...snack,
+                    price: unitPrice,
+                    sellPrice: unitPrice,
+                    costPrice: unitCost
+                }
+            };
+        }
+
         // Load from localStorage or use defaults
-        let snacks = JSON.parse(localStorage.getItem('snackItems')) || [...defaultSnacks];
+        let snacks = (JSON.parse(localStorage.getItem('snackItems')) || [...defaultSnacks]).map(normalizeSnackForPricing);
         let customers = JSON.parse(localStorage.getItem('customerList')) || [...defaultCustomers];
 
         let purchases = [];
@@ -1636,7 +1678,12 @@
         let syncTimer = null;
 
         function buildCurrentState() {
-            return { snacks, customers, purchases, users };
+            return {
+                snacks: snacks.map(normalizeSnackForPricing),
+                customers,
+                purchases: purchases.map(normalizePurchaseForPricing),
+                users
+            };
         }
 
         function persistStateToLocalStorage() {
@@ -1677,9 +1724,11 @@
                 }
 
                 const state = data.state;
-                snacks = Array.isArray(state.snacks) && state.snacks.length ? state.snacks : [...defaultSnacks];
+                snacks = (Array.isArray(state.snacks) && state.snacks.length ? state.snacks : [...defaultSnacks])
+                    .map(normalizeSnackForPricing);
                 customers = Array.isArray(state.customers) && state.customers.length ? state.customers : [...defaultCustomers];
-                purchases = Array.isArray(state.purchases) ? state.purchases : [];
+                purchases = (Array.isArray(state.purchases) ? state.purchases : [])
+                    .map(normalizePurchaseForPricing);
                 users = Array.isArray(state.users) ? state.users : [];
 
                 persistStateToLocalStorage();
@@ -1835,9 +1884,10 @@
             const customerTotals = {};
             purchases.forEach(p => {
                 if (!customerTotals[p.customerName]) {
-                    customerTotals[p.customerName] = { total: 0, count: 0 };
+                    customerTotals[p.customerName] = { total: 0, profit: 0, count: 0 };
                 }
-                customerTotals[p.customerName].total += p.price;
+                customerTotals[p.customerName].total += asAmount(p.revenue ?? p.price, 0);
+                customerTotals[p.customerName].profit += Number(p.profit ?? 0);
                 customerTotals[p.customerName].count += 1;
             });
 
@@ -1863,7 +1913,7 @@
                         <div class="ranking-badge ${badgeClass}">${label}</div>
                         <div class="ranking-info">
                             <div class="ranking-name">${name}</div>
-                            <div class="ranking-detail">ซื้อ ${data.count} ครั้ง</div>
+                            <div class="ranking-detail">ซื้อ ${data.count} ครั้ง | กำไร ${data.profit} ฿</div>
                         </div>
                         <div class="ranking-total">${data.total} ฿</div>
                     </div>
@@ -1908,6 +1958,9 @@
             const grid = document.getElementById('snackGrid');
             grid.innerHTML = snacks.map(snack => {
                 const stock = snack.stock || 0;
+                const sellPrice = asAmount(snack.sellPrice ?? snack.price, 0);
+                const costPrice = asAmount(snack.costPrice, 0);
+                const profitPerUnit = sellPrice - costPrice;
                 const soldOut = stock <= 0;
                 let stockClass = 'in-stock';
                 let stockText = `เหลือ ${stock}`;
@@ -1918,7 +1971,8 @@
                     <div class="snack-item ${soldOut ? 'sold-out' : ''}" onclick="${soldOut ? '' : `selectSnack(${snack.id})`}">
                         ${getSnackDisplayHTML(snack, 'grid')}
                         <div class="snack-name">${snack.name}</div>
-                        <div class="snack-price">${snack.price} ฿</div>
+                        <div class="snack-price">${sellPrice} ฿</div>
+                        <div style="font-size: 0.8rem; color: var(--text-light);">ทุน ${costPrice} ฿ | กำไร ${profitPerUnit} ฿</div>
                         <div class="snack-stock ${stockClass}">${stockText}</div>
                     </div>
                 `;
@@ -1930,11 +1984,15 @@
             selectedSnack = snacks.find(s => s.id === snackId);
             selectedCustomers = {};
             activeShift = 'all';
+            const sellPrice = asAmount(selectedSnack?.sellPrice ?? selectedSnack?.price, 0);
+            const costPrice = asAmount(selectedSnack?.costPrice, 0);
 
             // Update modal content
             document.getElementById('selectedSnackEmoji').innerHTML = getSnackDisplayHTML(selectedSnack, 'modal');
             document.getElementById('selectedSnackName').textContent = selectedSnack.name;
-            document.getElementById('selectedSnackPrice').textContent = selectedSnack.price;
+            document.getElementById('selectedSnackPrice').textContent = sellPrice;
+            document.getElementById('selectedSnackCost').textContent = costPrice;
+            document.getElementById('selectedSnackProfit').textContent = sellPrice - costPrice;
 
             // Clear search
             document.getElementById('customerSearch').value = '';
@@ -2038,9 +2096,12 @@
 
             if (customerCount > 0) {
                 section.style.display = 'block';
-                const totalPrice = totalQty * (selectedSnack ? selectedSnack.price : 0);
+                const sellPrice = selectedSnack ? asAmount(selectedSnack.sellPrice ?? selectedSnack.price, 0) : 0;
+                const costPrice = selectedSnack ? asAmount(selectedSnack.costPrice, 0) : 0;
+                const totalPrice = totalQty * sellPrice;
+                const totalProfit = totalQty * (sellPrice - costPrice);
                 document.getElementById('selectedCount').innerHTML =
-                    `${customerCount} คน / ${totalQty} ชิ้น / รวม ${totalPrice} ฿`;
+                    `${customerCount} คน / ${totalQty} ชิ้น / ขาย ${totalPrice} ฿ / กำไร ${totalProfit} ฿`;
             } else {
                 section.style.display = 'none';
             }
@@ -2069,6 +2130,9 @@
                 return;
             }
 
+            const sellPrice = asAmount(selectedSnack.sellPrice ?? selectedSnack.price, 0);
+            const costPrice = asAmount(selectedSnack.costPrice, 0);
+
             // Create purchase records for each selected customer x quantity
             const now = new Date().toISOString();
             Object.entries(selectedCustomers).forEach(([customerName, qty]) => {
@@ -2076,8 +2140,14 @@
                     const purchase = {
                         id: Date.now() + Math.random(),
                         customerName: customerName,
-                        snack: { ...selectedSnack },
-                        price: selectedSnack.price,
+                        snack: { ...selectedSnack, price: sellPrice, sellPrice, costPrice },
+                        qty: 1,
+                        unitPrice: sellPrice,
+                        unitCost: costPrice,
+                        revenue: sellPrice,
+                        cost: costPrice,
+                        profit: sellPrice - costPrice,
+                        price: sellPrice,
                         date: now
                     };
                     purchases.unshift(purchase);
@@ -2118,10 +2188,11 @@
             });
 
             const count = todayPurchases.length;
-            const total = todayPurchases.reduce((sum, p) => sum + p.price, 0);
+            const total = todayPurchases.reduce((sum, p) => sum + asAmount(p.revenue ?? p.price, 0), 0);
+            const totalProfit = todayPurchases.reduce((sum, p) => sum + Number(p.profit ?? 0), 0);
 
             document.getElementById('todayCount').textContent = count;
-            document.getElementById('todayTotal').textContent = `${total} ฿`;
+            document.getElementById('todayTotal').textContent = `${total} ฿ (กำไร ${totalProfit} ฿)`;
 
             // Render today's purchase list
             const listContainer = document.getElementById('todayPurchaseList');
@@ -2145,7 +2216,8 @@
                         </div>
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <span class="purchase-time">${time}</span>
-                            <span class="purchase-price">${p.price} ฿</span>
+                            <span class="purchase-price">${asAmount(p.revenue ?? p.price, 0)} ฿</span>
+                            <span style="font-size: 0.8rem; color: var(--success);">กำไร ${Number(p.profit ?? 0)} ฿</span>
                         </div>
                     </div>`;
             });
@@ -2194,16 +2266,22 @@
                 if (!customerData[purchase.customerName]) {
                     customerData[purchase.customerName] = {
                         total: 0,
+                        cost: 0,
+                        profit: 0,
                         count: 0,
                         items: []
                     };
                 }
-                customerData[purchase.customerName].total += purchase.price;
+                customerData[purchase.customerName].total += asAmount(purchase.revenue ?? purchase.price, 0);
+                customerData[purchase.customerName].cost += asAmount(purchase.cost, 0);
+                customerData[purchase.customerName].profit += Number(purchase.profit ?? 0);
                 customerData[purchase.customerName].count += 1;
                 customerData[purchase.customerName].items.push(purchase.snack);
             });
             
-            const totalRevenue = monthlyPurchases.reduce((sum, p) => sum + p.price, 0);
+            const totalRevenue = monthlyPurchases.reduce((sum, p) => sum + asAmount(p.revenue ?? p.price, 0), 0);
+            const totalCost = monthlyPurchases.reduce((sum, p) => sum + asAmount(p.cost, 0), 0);
+            const totalProfit = monthlyPurchases.reduce((sum, p) => sum + Number(p.profit ?? 0), 0);
             const totalTransactions = monthlyPurchases.length;
             const totalCustomers = Object.keys(customerData).length;
             const avgPerTransaction = Math.round(totalRevenue / totalTransactions);
@@ -2218,12 +2296,12 @@
                         <div class="stat-value">${totalRevenue} ฿</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">จำนวนรายการ</div>
-                        <div class="stat-value">${totalTransactions}</div>
+                        <div class="stat-label">ต้นทุนรวม</div>
+                        <div class="stat-value">${totalCost} ฿</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">จำนวนลูกค้า</div>
-                        <div class="stat-value">${totalCustomers}</div>
+                        <div class="stat-label">กำไรรวม</div>
+                        <div class="stat-value">${totalProfit} ฿</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-label">ค่าเฉลี่ย/รายการ</div>
@@ -2258,7 +2336,7 @@
                                         </div>
                                         <div class="customer-detail-info">
                                             <span>🛒 ซื้อ ${data.count} ครั้ง</span>
-                                            <span>📊 เฉลี่ย ${Math.round(data.total / data.count)} ฿/ครั้ง</span>
+                                            <span>📊 กำไร ${data.profit} ฿ (ต้นทุน ${data.cost} ฿)</span>
                                         </div>
                                         <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 0.85rem; color: var(--text-light);">
                                             <strong>ขนมที่สั่งบ่อย:</strong> ${topSnacks}
@@ -2322,13 +2400,19 @@
                 if (!customerData[purchase.customerName]) {
                     customerData[purchase.customerName] = {
                         total: 0,
+                        cost: 0,
+                        profit: 0,
                         items: []
                     };
                 }
-                customerData[purchase.customerName].total += purchase.price;
+                customerData[purchase.customerName].total += asAmount(purchase.revenue ?? purchase.price, 0);
+                customerData[purchase.customerName].cost += asAmount(purchase.cost, 0);
+                customerData[purchase.customerName].profit += Number(purchase.profit ?? 0);
                 customerData[purchase.customerName].items.push({
                     snack: purchase.snack.name,
-                    price: purchase.price,
+                    price: asAmount(purchase.revenue ?? purchase.price, 0),
+                    cost: asAmount(purchase.cost, 0),
+                    profit: Number(purchase.profit ?? 0),
                     date: new Date(purchase.date).toLocaleDateString('th-TH')
                 });
             });
@@ -2340,17 +2424,23 @@
                     reportText += `\n${name}\n`;
                     reportText += `${'='.repeat(name.length)}\n`;
                     reportText += `ยอดรวม: ${data.total} บาท\n`;
+                    reportText += `ต้นทุน: ${data.cost} บาท\n`;
+                    reportText += `กำไร: ${data.profit} บาท\n`;
                     reportText += `รายการ:\n`;
                     data.items.forEach(item => {
-                        reportText += `  - ${item.date}: ${item.snack} (${item.price} บาท)\n`;
+                        reportText += `  - ${item.date}: ${item.snack} (ขาย ${item.price} / ทุน ${item.cost} / กำไร ${item.profit} บาท)\n`;
                     });
                     reportText += `\n`;
                 });
 
             // Add summary
-            const totalRevenue = monthlyPurchases.reduce((sum, p) => sum + p.price, 0);
+            const totalRevenue = monthlyPurchases.reduce((sum, p) => sum + asAmount(p.revenue ?? p.price, 0), 0);
+            const totalCost = monthlyPurchases.reduce((sum, p) => sum + asAmount(p.cost, 0), 0);
+            const totalProfit = monthlyPurchases.reduce((sum, p) => sum + Number(p.profit ?? 0), 0);
             reportText += `\n=== สรุปรวม ===\n`;
             reportText += `ยอดขายรวมทั้งหมด: ${totalRevenue} บาท\n`;
+            reportText += `ต้นทุนรวม: ${totalCost} บาท\n`;
+            reportText += `กำไรรวม: ${totalProfit} บาท\n`;
             reportText += `จำนวนรายการ: ${monthlyPurchases.length} รายการ\n`;
             reportText += `จำนวนลูกค้า: ${Object.keys(customerData).length} คน\n`;
 
@@ -2395,6 +2485,7 @@
 
         // Save purchases to localStorage
         function savePurchases() {
+            purchases = purchases.map(normalizePurchaseForPricing);
             localStorage.setItem('snackPurchases', JSON.stringify(purchases));
             scheduleStateSync();
         }
@@ -2403,7 +2494,7 @@
         function loadPurchases() {
             const saved = localStorage.getItem('snackPurchases');
             if (saved) {
-                purchases = JSON.parse(saved);
+                purchases = JSON.parse(saved).map(normalizePurchaseForPricing);
             }
         }
 
@@ -2482,6 +2573,7 @@
             document.getElementById('newSnackImage').value = '';
             document.getElementById('newSnackName').value = '';
             document.getElementById('newSnackPrice').value = '';
+            document.getElementById('newSnackCost').value = '';
             document.getElementById('newSnackStock').value = '';
             updateImagePreview();
             refreshSnackFormMode();
@@ -2495,7 +2587,8 @@
             pendingSnackImage = snack.image || null;
             document.getElementById('newSnackImage').value = '';
             document.getElementById('newSnackName').value = snack.name || '';
-            document.getElementById('newSnackPrice').value = snack.price || '';
+            document.getElementById('newSnackPrice').value = snack.sellPrice ?? snack.price ?? '';
+            document.getElementById('newSnackCost').value = snack.costPrice ?? 0;
             document.getElementById('newSnackStock').value = snack.stock || 0;
             updateImagePreview();
             refreshSnackFormMode();
@@ -2660,7 +2753,7 @@
                     <div class="manage-item-info">
                         ${getSnackDisplayHTML(s, 'manage')}
                         <span>${s.name}</span>
-                        <span class="manage-item-price">${s.price} ฿</span>
+                        <span class="manage-item-price">ขาย ${asAmount(s.sellPrice ?? s.price, 0)} ฿ | ทุน ${asAmount(s.costPrice, 0)} ฿</span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.85rem; color: var(--text-light);">คลัง:</span>
@@ -2684,15 +2777,26 @@
 
         function addSnack() {
             const name = document.getElementById('newSnackName').value.trim();
-            const price = parseInt(document.getElementById('newSnackPrice').value);
+            const sellPrice = parseInt(document.getElementById('newSnackPrice').value);
+            const costPrice = parseInt(document.getElementById('newSnackCost').value) || 0;
             const stock = parseInt(document.getElementById('newSnackStock').value) || 0;
 
             if (!pendingSnackImage) { showToast('⚠️ กรุณาเลือกรูปสินค้า', 'warning'); return; }
             if (!name) { showToast('⚠️ กรุณาใส่ชื่อสินค้า', 'warning'); return; }
-            if (!price || price <= 0) { showToast('⚠️ กรุณาใส่ราคาที่ถูกต้อง', 'warning'); return; }
+            if (!sellPrice || sellPrice <= 0) { showToast('⚠️ กรุณาใส่ราคาขายที่ถูกต้อง', 'warning'); return; }
+            if (costPrice < 0) { showToast('⚠️ ราคาทุนต้องไม่ติดลบ', 'warning'); return; }
 
             const newId = snacks.length > 0 ? Math.max(...snacks.map(s => s.id)) + 1 : 1;
-            snacks.push({ id: newId, name, image: pendingSnackImage, emoji: '', price, stock });
+            snacks.push(normalizeSnackForPricing({
+                id: newId,
+                name,
+                image: pendingSnackImage,
+                emoji: '',
+                price: sellPrice,
+                sellPrice,
+                costPrice,
+                stock
+            }));
             saveSnacks();
             renderManageSnackList();
             renderSnackGrid();
@@ -2708,15 +2812,19 @@
             if (!snack) return;
 
             const name = document.getElementById('newSnackName').value.trim();
-            const price = parseInt(document.getElementById('newSnackPrice').value);
+            const sellPrice = parseInt(document.getElementById('newSnackPrice').value);
+            const costPrice = parseInt(document.getElementById('newSnackCost').value) || 0;
             const stock = parseInt(document.getElementById('newSnackStock').value);
 
             if (!name) { showToast('⚠️ กรุณาใส่ชื่อสินค้า', 'warning'); return; }
-            if (!price || price <= 0) { showToast('⚠️ กรุณาใส่ราคาที่ถูกต้อง', 'warning'); return; }
+            if (!sellPrice || sellPrice <= 0) { showToast('⚠️ กรุณาใส่ราคาขายที่ถูกต้อง', 'warning'); return; }
+            if (costPrice < 0) { showToast('⚠️ ราคาทุนต้องไม่ติดลบ', 'warning'); return; }
             if (!Number.isFinite(stock) || stock < 0) { showToast('⚠️ กรุณาใส่จำนวนที่ถูกต้อง', 'warning'); return; }
 
             snack.name = name;
-            snack.price = price;
+            snack.price = sellPrice;
+            snack.sellPrice = sellPrice;
+            snack.costPrice = costPrice;
             snack.stock = stock;
 
             if (pendingSnackImage) {
@@ -2764,6 +2872,7 @@
         }
 
         function saveSnacks() {
+            snacks = snacks.map(normalizeSnackForPricing);
             localStorage.setItem('snackItems', JSON.stringify(snacks));
             scheduleStateSync();
         }
