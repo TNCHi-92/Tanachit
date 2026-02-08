@@ -312,7 +312,7 @@ function validateState(state) {
   state.customers.forEach((c, i) => {
     const shift = asString(c?.shift, "").toUpperCase();
     if (!asString(c?.name).trim()) errors.push(`customers[${i}] name is required`);
-    if (!["A", "B", "C", "D"].includes(shift)) errors.push(`customers[${i}] shift invalid`);
+    if (!["A", "B", "C", "D", "O"].includes(shift)) errors.push(`customers[${i}] shift invalid`);
   });
 
   state.users.forEach((u, i) => {

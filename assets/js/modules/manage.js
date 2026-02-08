@@ -820,19 +820,20 @@
                 list.innerHTML = '<div class="empty-state" style="padding: 30px;"><div class="empty-state-icon">👥</div><p>ยังไม่มีลูกค้า</p></div>';
                 return;
             }
-            const shifts = ['A', 'B', 'C', 'D'];
+            const shifts = ['A', 'B', 'C', 'D', 'O'];
+            const shiftLabel = { A: 'Shift A', B: 'Shift B', C: 'Shift C', D: 'Shift D', O: 'อื่นๆ' };
             list.innerHTML = shifts.map(shift => {
                 const group = customers.filter(c => c.shift === shift);
                 if (group.length === 0) return '';
                 return `
                     <div style="margin-bottom: 15px;">
-                        <div style="font-weight: 600; color: var(--secondary); margin-bottom: 8px; font-size: 0.95rem;">Shift ${shift} (${group.length} คน)</div>
+                        <div style="font-weight: 600; color: var(--secondary); margin-bottom: 8px; font-size: 0.95rem;">${shiftLabel[shift] || shift} (${group.length} คน)</div>
                         ${group.map(c => `
                             <div class="manage-item">
                                 <div class="manage-item-info">
                                     <span>👤</span>
                                     <span>${c.name}</span>
-                                    <span style="font-size: 0.8rem; color: var(--text-light); background: #f0f0f0; padding: 2px 8px; border-radius: 6px;">Shift ${c.shift}</span>
+                                    <span style="font-size: 0.8rem; color: var(--text-light); background: #f0f0f0; padding: 2px 8px; border-radius: 6px;">${shiftLabel[c.shift] || c.shift}</span>
                                 </div>
                                 <button class="btn-delete" onclick="deleteCustomer('${c.name}')">ลบ</button>
                             </div>
@@ -910,6 +911,7 @@
             if (!ensureCanManageData()) return;
             const name = document.getElementById('newCustomerName').value.trim();
             const shift = document.getElementById('newCustomerShift').value;
+            const shiftLabel = { A: 'Shift A', B: 'Shift B', C: 'Shift C', D: 'Shift D', O: 'อื่นๆ' };
 
             if (!name) { showToast('⚠️ กรุณาใส่ชื่อลูกค้า', 'warning'); return; }
             if (customers.some(c => c.name === name)) { showToast('⚠️ ชื่อนี้มีอยู่แล้ว', 'warning'); return; }
@@ -921,7 +923,7 @@
 
             document.getElementById('newCustomerName').value = '';
 
-            showToast(`✅ เพิ่มลูกค้า "${name}" (Shift ${shift}) สำเร็จ!`, 'success');
+            showToast(`✅ เพิ่มลูกค้า "${name}" (${shiftLabel[shift] || shift}) สำเร็จ!`, 'success');
         }
 
         function deleteCustomer(name) {

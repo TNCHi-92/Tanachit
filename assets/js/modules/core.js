@@ -27,7 +27,8 @@
             { name: 'ยู', shift: 'C' },
             { name: 'วี', shift: 'D' }, { name: 'ดับเบิ้ลยู', shift: 'D' }, { name: 'เอ็กซ์', shift: 'D' },
             { name: 'วาย', shift: 'D' }, { name: 'แซด', shift: 'D' }, { name: 'บอม', shift: 'D' },
-            { name: 'นิว', shift: 'D' }
+            { name: 'นิว', shift: 'D' },
+            { name: 'เมย์', shift: 'O' }, { name: 'SC.', shift: 'O' }
         ];
 
         // Load from localStorage or use defaults
@@ -38,7 +39,7 @@
         let auditLogs = JSON.parse(localStorage.getItem('snackAuditLogs')) || [];
         let selectedSnack = null;
         let selectedCustomers = {}; // { name: quantity }
-        let activeShift = 'all'; // 'all', 'A', 'B', 'C', 'D'
+        let activeShift = 'all'; // 'all', 'A', 'B', 'C', 'D', 'O'
 
         // === Login System ===
         let users = JSON.parse(localStorage.getItem('snackUsers')) || [];
@@ -138,6 +139,25 @@
             return pushStateToServer({ force: true, silent: false });
         }
 
+        function ensureRequiredCustomers() {
+            const required = [
+                { name: 'เมย์', shift: 'O' },
+                { name: 'SC.', shift: 'O' }
+            ];
+            let changed = false;
+            required.forEach((row) => {
+                const has = customers.some((c) => String(c?.name || '').trim() === row.name);
+                if (!has) {
+                    customers.push({ ...row });
+                    changed = true;
+                }
+            });
+            if (changed) {
+                localStorage.setItem('customerList', JSON.stringify(customers));
+            }
+            return changed;
+        }
+
         async function syncSnackNow(snack) {
             if (!snack || !snack.id) return false;
             try {
@@ -179,6 +199,7 @@
                 snacks = Array.isArray(state.snacks) && state.snacks.length ? state.snacks : [...defaultSnacks];
                 snacks = normalizeSnackData(snacks);
                 customers = Array.isArray(state.customers) && state.customers.length ? state.customers : [...defaultCustomers];
+                ensureRequiredCustomers();
                 purchases = Array.isArray(state.purchases) ? state.purchases : [];
                 users = Array.isArray(state.users) ? state.users : [];
                 auditLogs = Array.isArray(state.auditLogs) ? state.auditLogs : auditLogs;
@@ -440,6 +461,11 @@
         // Initialize the app
         async function init() {
             await hydrateStateFromServer();
+            const changed = ensureRequiredCustomers();
+            if (changed) {
+                scheduleStateSync();
+                void flushStateSync();
+            }
             checkSession();
         }
 
@@ -564,7 +590,7 @@
             grid.innerHTML = filteredCustomers.map(c => {
                 const name = c.name;
                 const shift = String(c.shift || '').toUpperCase();
-                const shiftClass = ['A', 'B', 'C', 'D'].includes(shift) ? `shift-${shift.toLowerCase()}` : '';
+                const shiftClass = ['A', 'B', 'C', 'D', 'O'].includes(shift) ? `shift-${shift.toLowerCase()}` : '';
                 const qty = selectedCustomers[name] || 0;
                 const isSelected = qty > 0;
                 if (isSelected) {
@@ -586,7 +612,7 @@
             // Update shift button active state
             document.querySelectorAll('.shift-btn').forEach(btn => btn.classList.remove('active'));
             const shiftBtns = document.querySelectorAll('.shift-btn');
-            const shiftIndex = ['all', 'A', 'B', 'C', 'D'].indexOf(activeShift);
+            const shiftIndex = ['all', 'A', 'B', 'C', 'D', 'O'].indexOf(activeShift);
             if (shiftBtns[shiftIndex]) shiftBtns[shiftIndex].classList.add('active');
         }
 
