@@ -148,6 +148,19 @@ async function initDb() {
     UPDATE snacks SET sell_price = price WHERE sell_price = 0;
     UPDATE snacks SET total_sold = 0 WHERE total_sold IS NULL;
     UPDATE snacks SET category = 'snack' WHERE category IS NULL OR category = '';
+    UPDATE snacks
+    SET category = 'ice_cream'
+    WHERE category = 'snack'
+      AND (
+        LOWER(name) LIKE '%ice cream%'
+        OR LOWER(name) LIKE '%icecream%'
+        OR LOWER(name) LIKE '%ice-cream%'
+        OR LOWER(name) LIKE '%gelato%'
+        OR LOWER(name) LIKE '%sorbet%'
+        OR name LIKE U&'%\\0E44\\0E2D\\0E28\\0E01\\0E23\\0E35\\0E21%'
+        OR name LIKE U&'%\\0E44\\0E2D\\0E28\\0E04\\0E23\\0E35\\0E21%'
+        OR name LIKE U&'%\\0E44\\0E2D\\0E15\\0E34\\0E21%'
+      );
 
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS qty INTEGER NOT NULL DEFAULT 1;
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS snack_image TEXT;

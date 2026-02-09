@@ -49,14 +49,16 @@
 
         function inferSnackCategoryByName(name = '') {
             const lower = String(name || '').toLowerCase();
-            const iceKeywords = ['ice cream', 'icecream', 'ice-cream', 'gelato', 'sorbet', 'ไอศกรีม', 'ไอติม'];
+            const iceKeywords = ['ice cream', 'icecream', 'ice-cream', 'gelato', 'sorbet', 'ไอศกรีม', 'ไอศครีม', 'ไอติม'];
             return iceKeywords.some(keyword => lower.includes(keyword)) ? 'ice_cream' : 'snack';
         }
 
         function normalizeSnackCategory(category, name = '') {
             const value = String(category || '').trim().toLowerCase().replace(/\s+/g, '_');
             if (value === 'ice_cream' || value === 'icecream' || value === 'ice-cream') return 'ice_cream';
-            if (value === 'snack') return 'snack';
+            if (value === 'snack') {
+                return inferSnackCategoryByName(name) === 'ice_cream' ? 'ice_cream' : 'snack';
+            }
             return inferSnackCategoryByName(name);
         }
 
@@ -160,11 +162,14 @@
 
         async function syncSnackNow(snack) {
             if (!snack || !snack.id) return false;
+            const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+            const timer = controller ? setTimeout(() => controller.abort(), 10000) : null;
             try {
                 const res = await fetch(`/api/snacks/${encodeURIComponent(snack.id)}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ snack })
+                    body: JSON.stringify({ snack }),
+                    signal: controller ? controller.signal : undefined
                 });
                 if (!res.ok) {
                     let msg = `HTTP ${res.status}`;
@@ -179,9 +184,15 @@
                 }
                 remoteSyncEnabled = true;
                 return true;
-            } catch (_err) {
+            } catch (err) {
+                if (err?.name === 'AbortError') {
+                    showToast('⚠️ อัปเดตสินค้านานเกินไป ระบบจะซิงค์แบบเต็มให้อัตโนมัติ', 'warning');
+                    return false;
+                }
                 showToast('⚠️ เชื่อมต่อฐานข้อมูลไม่ได้ขณะอัปเดตสินค้า', 'warning');
                 return false;
+            } finally {
+                if (timer) clearTimeout(timer);
             }
         }
 

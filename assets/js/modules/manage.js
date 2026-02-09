@@ -333,6 +333,7 @@
         let pendingSnackImage = null;
         let editingSnackId = null;
         let imageUploadSetupDone = false;
+        let isSavingSnack = false;
 
         function refreshSnackFormMode() {
             const saveBtn = document.getElementById('saveSnackBtn');
@@ -736,11 +737,32 @@
         }
 
         async function addOrUpdateSnack() {
-            if (editingSnackId !== null) {
-                await updateSnack(editingSnackId);
-                return;
+            if (isSavingSnack) return;
+            const saveBtn = document.getElementById('saveSnackBtn');
+            const originalLabel = saveBtn ? saveBtn.textContent : '';
+            try {
+                isSavingSnack = true;
+                if (saveBtn) {
+                    saveBtn.disabled = true;
+                    saveBtn.textContent = 'กำลังบันทึก...';
+                }
+
+                if (editingSnackId !== null) {
+                    await updateSnack(editingSnackId);
+                    return;
+                }
+                await addSnack();
+            } catch (err) {
+                const reason = err?.message ? String(err.message) : 'ไม่ทราบสาเหตุ';
+                console.error('addOrUpdateSnack failed:', err);
+                showToast(`⚠️ บันทึกไม่สำเร็จ: ${reason}`, 'warning');
+            } finally {
+                isSavingSnack = false;
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = originalLabel || (editingSnackId !== null ? '💾 บันทึกแก้ไข' : '+ เพิ่ม');
+                }
             }
-            await addSnack();
         }
 
         async function addSnack() {
@@ -756,18 +778,27 @@
             if (!price || price <= 0) { showToast('⚠️ กรุณาใส่ราคาที่ถูกต้อง', 'warning'); return; }
             if (costPrice < 0) { showToast('⚠️ กรุณาใส่ราคาทุนที่ถูกต้อง', 'warning'); return; }
 
+            const previousSnacks = JSON.parse(JSON.stringify(snacks));
             const newId = snacks.length > 0 ? Math.max(...snacks.map(s => s.id)) + 1 : 1;
             const normalizedPrice = Number(price.toFixed(2));
             const normalizedCostPrice = Number(costPrice.toFixed(2));
             snacks.push({ id: newId, name, image: pendingSnackImage, emoji: '', price: normalizedPrice, sellPrice: normalizedPrice, costPrice: normalizedCostPrice, totalSold: 0, category, stock });
             const newSnack = snacks.find(s => s.id === newId);
-            saveSnacks();
-            if (newSnack) {
-                const ok = await syncSnackNow(newSnack);
-                if (!ok) {
-                    void flushStateSync();
-                }
+            if (!newSnack) {
+                snacks = previousSnacks;
+                throw new Error('ไม่พบข้อมูลสินค้าที่สร้างใหม่');
             }
+
+            const ok = await syncSnackNow(newSnack);
+            if (!ok) {
+                snacks = previousSnacks;
+                renderManageSnackList();
+                renderSnackGrid();
+                refreshProfitTabIfVisible();
+                throw new Error('ซิงค์ฐานข้อมูลไม่สำเร็จ');
+            }
+
+            persistSnacksLocalOnly();
             addAuditLog('snack.create', `เพิ่มสินค้า ${name}`, { id: newId, price: normalizedPrice, costPrice: normalizedCostPrice, category, stock });
             renderManageSnackList();
             renderSnackGrid();
@@ -782,7 +813,11 @@
         async function updateSnack(id) {
             if (!ensureCanManageData()) return;
             const snack = snacks.find(s => s.id === id);
-            if (!snack) return;
+            if (!snack) {
+                showToast('⚠️ ไม่พบสินค้าที่กำลังแก้ไข กรุณากด "แก้ไข" ใหม่อีกครั้ง', 'warning');
+                resetSnackForm();
+                return;
+            }
 
             const name = document.getElementById('newSnackName').value.trim();
             const price = Number(document.getElementById('newSnackPrice').value);
@@ -796,6 +831,7 @@
             if (costPrice < 0) { showToast('⚠️ กรุณาใส่ราคาทุนที่ถูกต้อง', 'warning'); return; }
             if (!Number.isFinite(stock) || stock < 0) { showToast('⚠️ กรุณาใส่จำนวนที่ถูกต้อง', 'warning'); return; }
 
+            const previousSnack = JSON.parse(JSON.stringify(snack));
             snack.name = name;
             const normalizedPrice = Number(price.toFixed(2));
             const normalizedCostPrice = Number(costPrice.toFixed(2));
@@ -810,11 +846,16 @@
                 snack.emoji = '';
             }
 
-            saveSnacks();
             const ok = await syncSnackNow(snack);
             if (!ok) {
-                void flushStateSync();
+                Object.assign(snack, previousSnack);
+                renderManageSnackList();
+                renderSnackGrid();
+                refreshProfitTabIfVisible();
+                throw new Error('ซิงค์ฐานข้อมูลไม่สำเร็จ');
             }
+
+            persistSnacksLocalOnly();
             if (oldPrice !== normalizedPrice) {
                 addAuditLog(
                     'snack.price.change',
@@ -830,26 +871,40 @@
             showToast(`✅ แก้ไข ${name} สำเร็จ!`, 'success');
         }
 
-        function updateStock(id, value) {
+        async function updateStock(id, value) {
             if (!ensureCanManageData()) return;
             const snack = snacks.find(s => s.id === id);
             if (snack) {
+                const previousStock = snack.stock;
                 snack.stock = Math.max(0, parseInt(value) || 0);
-                saveSnacks();
-                void syncSnackNow(snack);
+                const ok = await syncSnackNow(snack);
+                if (!ok) {
+                    snack.stock = previousStock;
+                    showToast('⚠️ ซิงค์ฐานข้อมูลไม่สำเร็จ ยกเลิกการเปลี่ยนคลัง', 'warning');
+                    renderManageSnackList();
+                    return;
+                }
+                persistSnacksLocalOnly();
                 addAuditLog('snack.stock.set', `ปรับสต็อก ${snack.name}`, { id, stock: snack.stock });
                 renderSnackGrid();
                 refreshProfitTabIfVisible();
             }
         }
 
-        function addStock(id, amount) {
+        async function addStock(id, amount) {
             if (!ensureCanManageData()) return;
             const snack = snacks.find(s => s.id === id);
             if (snack) {
+                const previousStock = snack.stock || 0;
                 snack.stock = (snack.stock || 0) + amount;
-                saveSnacks();
-                void syncSnackNow(snack);
+                const ok = await syncSnackNow(snack);
+                if (!ok) {
+                    snack.stock = previousStock;
+                    showToast('⚠️ ซิงค์ฐานข้อมูลไม่สำเร็จ ยกเลิกการเพิ่มคลัง', 'warning');
+                    renderManageSnackList();
+                    return;
+                }
+                persistSnacksLocalOnly();
                 addAuditLog('snack.stock.add', `เพิ่มสต็อก ${snack.name}`, { id, amount, stock: snack.stock });
                 renderManageSnackList();
                 renderSnackGrid();
@@ -874,10 +929,14 @@
         }
 
         function saveSnacks() {
+            persistSnacksLocalOnly();
+            void flushStateSync();
+        }
+
+        function persistSnacksLocalOnly() {
             snacks = normalizeSnackData(snacks);
             localStorage.setItem('snackItems', JSON.stringify(snacks));
             scheduleStateSync();
-            void flushStateSync();
         }
 
         // --- Customer CRUD ---
