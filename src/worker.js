@@ -241,6 +241,21 @@ export default {
     const url = new URL(request.url);
     const sql = getSql(env);
 
+    async function serveStaticAsset() {
+      if (!env?.ASSETS || url.pathname.startsWith("/api/")) return null;
+      const assetUrl = new URL(request.url);
+      if (assetUrl.pathname === "/") {
+        assetUrl.pathname = "/pro.html";
+      }
+      const assetReq = new Request(assetUrl.toString(), request);
+      const assetRes = await env.ASSETS.fetch(assetReq);
+      if (assetRes && assetRes.status !== 404) return assetRes;
+      return null;
+    }
+
+    const staticRes = await serveStaticAsset();
+    if (staticRes) return staticRes;
+
     if (url.pathname === "/" || url.pathname === "/pro.html") {
       return new Response(html, {
         headers: { "content-type": "text/html; charset=utf-8" }

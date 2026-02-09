@@ -2,6 +2,9 @@
   "name": "project1",
   "main": "src/worker.js",
   "compatibility_date": "2026-02-07",
+  "assets": {
+    "directory": "."
+  },
   "rules": [
     {
       "type": "Text",
