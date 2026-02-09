@@ -653,6 +653,7 @@
         .customer-btn.selected {
             justify-content: space-between;
             padding: 8px 10px;
+            gap: 8px;
         }
 
         .customer-btn.shift-a {
@@ -766,6 +767,24 @@
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+
+        .qty-input {
+            width: 56px;
+            height: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.55);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.18);
+            color: #fff;
+            font-weight: 700;
+            text-align: center;
+            outline: none;
+            padding: 0 4px;
+        }
+
+        .qty-input:focus {
+            border-color: rgba(255, 255, 255, 0.95);
+            background: rgba(255, 255, 255, 0.32);
         }
 
         .toast {
@@ -1190,9 +1209,14 @@
         }
 
         .snack-item.sold-out {
-            opacity: 0.5;
-            pointer-events: none;
-            filter: grayscale(0.5);
+            opacity: 0.6;
+            filter: grayscale(0.4);
+            cursor: pointer;
+        }
+
+        .snack-item.sold-out:hover {
+            opacity: 0.85;
+            filter: grayscale(0.1);
         }
 
         .snack-item.sold-out::after {
@@ -1206,6 +1230,18 @@
             font-weight: 700;
             padding: 2px 8px;
             border-radius: 6px;
+        }
+
+        .sold-out-banner {
+            text-align: center;
+            padding: 14px;
+            background: linear-gradient(135deg, #FFE5E5, #FFF0F0);
+            border: 2px solid #FFD1D1;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 1rem;
         }
 
         .ranking-card {
@@ -1497,4 +1533,149 @@
             background: var(--primary);
             color: white;
             border-color: var(--primary);
+        }
+
+        /* Snack Purchase History */
+        .history-section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, #f8f9fa, #ffffff);
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 1rem;
+            color: var(--text-dark);
+            transition: all 0.3s ease;
+            user-select: none;
+        }
+
+        .history-section-title:hover {
+            border-color: var(--secondary);
+            color: var(--secondary);
+        }
+
+        .history-count {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-light);
+        }
+
+        .history-toggle {
+            margin-left: auto;
+            font-size: 0.8rem;
+            color: var(--text-light);
+            transition: transform 0.3s ease;
+        }
+
+        .history-list {
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .history-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            background: linear-gradient(135deg, #f8f9fa, #ffffff);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            transition: all 0.2s ease;
+        }
+
+        .history-item:hover {
+            border-color: var(--secondary);
+            transform: translateX(3px);
+        }
+
+        .history-item-rank {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--secondary), #3FBDB5);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .history-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .history-item-name {
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--text-dark);
+        }
+
+        .history-item-date {
+            font-size: 0.8rem;
+            color: var(--text-light);
+            margin-top: 2px;
+        }
+
+        .history-item-price {
+            font-weight: 700;
+            font-size: 0.95rem;
+            color: var(--primary);
+            white-space: nowrap;
+        }
+
+        .history-pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 6px;
+            margin-top: 14px;
+            flex-wrap: wrap;
+        }
+
+        .history-page-btn {
+            min-width: 34px;
+            height: 34px;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            background: white;
+            font-family: 'Prompt', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            color: var(--text-dark);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 8px;
+        }
+
+        .history-page-btn:hover:not(:disabled) {
+            border-color: var(--secondary);
+            color: var(--secondary);
+        }
+
+        .history-page-btn.active {
+            background: linear-gradient(135deg, var(--secondary), #3FBDB5);
+            color: white;
+            border-color: var(--secondary);
+        }
+
+        .history-page-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .history-page-dots {
+            font-size: 0.85rem;
+            color: var(--text-light);
+            padding: 0 2px;
         }

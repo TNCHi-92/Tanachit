@@ -1,0 +1,254 @@
+=== Profit report กุมภาพันธ์ 2569 ===
+
+Monthly revenue: 3520 THB
+Monthly cost: 2964.57 THB
+Monthly profit: 555.43 THB
+Transactions: 328
+Potential profit if all stock sold: 392.81 THB
+
+--- Customer billing (sell price) ---
+ธนชิต: total=435 THB, qty=39
+  - ไอศครีมรสถั่วดำ: qty=7, amount=70 THB
+  - ไอศครีมถ้วยบิ๊กคัพ: qty=5, amount=50 THB
+  - มาม่าคัพ: qty=3, amount=45 THB
+  - เลย์: qty=2, amount=40 THB
+  - ไอศครีมดูโอ้: qty=4, amount=40 THB
+  - ทาโร่: qty=3, amount=30 THB
+  - ไอศครีมขนมปัง: qty=3, amount=30 THB
+  - ปลากระป๋อง: qty=1, amount=25 THB
+  - โก๋แก่: qty=1, amount=20 THB
+  - เทสโต: qty=1, amount=20 THB
+  - ไอศครีมดัชชี่เมล่อน: qty=2, amount=20 THB
+  - นมแท่ง: qty=3, amount=15 THB
+  - bang bang: qty=2, amount=10 THB
+  - ไอศครีมร็อคเก็ต: qty=1, amount=10 THB
+  - เจเล่: qty=1, amount=10 THB
+ภาณุพงศ์: total=345 THB, qty=33
+  - ไอศครีมรสถั่วดำ: qty=9, amount=90 THB
+  - ไอศครีมขนมปัง: qty=6, amount=60 THB
+  - ทาโร่: qty=3, amount=30 THB
+  - ไวไว: qty=3, amount=21 THB
+  - โก๋แก่: qty=1, amount=20 THB
+  - คอนเน่: qty=1, amount=20 THB
+  - ตะวัน: qty=1, amount=20 THB
+  - เลย์: qty=1, amount=20 THB
+  - ไอศครีมดูโอ้: qty=2, amount=20 THB
+  - ไอศครีมถ้วยบิ๊กคัพ: qty=2, amount=20 THB
+  - มาม่า: qty=2, amount=14 THB
+  - bang bang: qty=2, amount=10 THB
+วัชรชัย: total=320 THB, qty=29
+  - ไอศครีมถ้วยบิ๊กคัพ: qty=14, amount=140 THB
+  - ไอศครีมขนมปัง: qty=7, amount=70 THB
+  - เลย์: qty=3, amount=60 THB
+  - ตะวัน: qty=1, amount=20 THB
+  - ไอศครีมร็อคเก็ต: qty=1, amount=10 THB
+  - เจเล่: qty=1, amount=10 THB
+  - เบนโตะ: qty=1, amount=5 THB
+  - bang bang: qty=1, amount=5 THB
+ดนัย: total=266 THB, qty=38
+  - ช้างน้อย: qty=16, amount=48 THB
+  - BigBag: qty=2, amount=40 THB
+  - ตะวัน: qty=2, amount=40 THB
+  - แจ๊กซ์: qty=2, amount=40 THB
+  - มาม่า: qty=4, amount=28 THB
+  - bang bang: qty=5, amount=25 THB
+  - นมแท่ง: qty=5, amount=25 THB
+  - เจเล่: qty=2, amount=20 THB
+สิรภพ: total=230 THB, qty=13
+  - เลย์: qty=9, amount=180 THB
+  - มาม่าคัพ: qty=2, amount=30 THB
+  - ไอศครีมดูโอ้: qty=2, amount=20 THB
+ธวัชชัย: total=222 THB, qty=23
+  - ไอศครีมรสถั่วดำ: qty=6, amount=60 THB
+  - เจเล่: qty=4, amount=40 THB
+  - ไวไว: qty=5, amount=35 THB
+  - ไอศครีมดูโอ้: qty=3, amount=30 THB
+  - BigBag: qty=1, amount=20 THB
+  - ไอศครีมดัชชี่เมล่อน: qty=1, amount=10 THB
+  - ไอศครีมร็อคเก็ต: qty=1, amount=10 THB
+  - ไอศครีมขนมปัง: qty=1, amount=10 THB
+  - มาม่า: qty=1, amount=7 THB
+พิสิษฐ์: total=215 THB, qty=18
+  - คอนเน่: qty=2, amount=40 THB
+  - เลย์: qty=2, amount=40 THB
+  - ไอศครีมดูโอ้: qty=4, amount=40 THB
+  - ไอศครีมรสถั่วดำ: qty=3, amount=30 THB
+  - เจเล่: qty=2, amount=20 THB
+  - ทาโร่: qty=1, amount=10 THB
+  - ไอศครีมดัชชี่เมล่อน: qty=1, amount=10 THB
+  - ไอศครีมขนมปัง: qty=1, amount=10 THB
+  - ไอศครีมถ้วยบิ๊กคัพ: qty=1, amount=10 THB
+  - bang bang: qty=1, amount=5 THB
+รังสรรค์: total=202 THB, qty=17
+  - เลย์: qty=2, amount=40 THB
+  - ไอศครีมรสถั่วดำ: qty=4, amount=40 THB
+  - ไอศครีมถ้วยบิ๊กคัพ: qty=3, amount=30 THB
+  - คอนเน่: qty=1, amount=20 THB
+  - เทสโต: qty=1, amount=20 THB
+  - ไอศครีมดัชชี่เมล่อน: qty=2, amount=20 THB
+  - เจเล่: qty=1, amount=10 THB
+  - ไอศครีมดูโอ้: qty=1, amount=10 THB
+  - มาม่า: qty=1, amount=7 THB
+  - bang bang: qty=1, amount=5 THB
+วิสิษฎ์: total=190 THB, qty=20
+  - เบนโตะ: qty=12, amount=60 THB
+  - เลย์: qty=3, amount=60 THB
+  - โก๋แก่: qty=1, amount=20 THB
+  - คอนเน่: qty=1, amount=20 THB
+  - ไอศครีมขนมปัง: qty=2, amount=20 THB
+  - ไอศครีมร็อคเก็ต: qty=1, amount=10 THB
+สุทธิ: total=127 THB, qty=12
+  - มาม่า: qty=5, amount=35 THB
+  - ปลากระป๋อง: qty=1, amount=25 THB
+  - ทาโร่: qty=2, amount=20 THB
+  - เทสโต: qty=1, amount=20 THB
+  - ไอศครีมถ้วยบิ๊กคัพ: qty=2, amount=20 THB
+  - ไวไว: qty=1, amount=7 THB
+วุฒิชัย: total=127 THB, qty=7
+  - โก๋แก่: qty=6, amount=120 THB
+  - มาม่า: qty=1, amount=7 THB
+ชุติพนธ์: total=100 THB, qty=9
+  - เลย์: qty=2, amount=40 THB
+  - เบนโตะ: qty=4, amount=20 THB
+  - คอนเน่: qty=1, amount=20 THB
+  - ไอศครีมดัชชี่เมล่อน: qty=1, amount=10 THB
+  - ไอศครีมถ้วยบิ๊กคัพ: qty=1, amount=10 THB
+คมกริช: total=87 THB, qty=8
+  - ไอศครีมรสถั่วดำ: qty=4, amount=40 THB
+  - เลย์: qty=1, amount=20 THB
+  - ไอศครีมดัชชี่เมล่อน: qty=1, amount=10 THB
+  - ไอศครีมถ้วยบิ๊กคัพ: qty=1, amount=10 THB
+  - ไวไว: qty=1, amount=7 THB
+กฤษฎิ์: total=87 THB, qty=9
+  - มาม่า: qty=3, amount=21 THB
+  - BigBag: qty=1, amount=20 THB
+  - เลย์: qty=1, amount=20 THB
+  - ไอศครีมดัชชี่เมล่อน: qty=1, amount=10 THB
+  - ไอศครีมถ้วยบิ๊กคัพ: qty=1, amount=10 THB
+  - ช้างน้อย: qty=2, amount=6 THB
+ณรงค์ฤทธิ์: total=76 THB, qty=10
+  - คอนเน่: qty=1, amount=20 THB
+  - ตะวัน: qty=1, amount=20 THB
+  - ช้างน้อย: qty=5, amount=15 THB
+  - ไวไว: qty=2, amount=14 THB
+  - มาม่า: qty=1, amount=7 THB
+สงกรานต์: total=61 THB, qty=6
+  - ไวไว: qty=3, amount=21 THB
+  - ทาโร่: qty=2, amount=20 THB
+  - โก๋แก่: qty=1, amount=20 THB
+พรชัย ป.: total=60 THB, qty=3
+  - เทสโต: qty=3, amount=60 THB
+ธนกร: total=55 THB, qty=4
+  - เลย์: qty=1, amount=20 THB
+  - มาม่าคัพ: qty=1, amount=15 THB
+  - ไอศครีมขนมปัง: qty=1, amount=10 THB
+  - ไอศครีมรสถั่วดำ: qty=1, amount=10 THB
+ธีรพงศ์: total=55 THB, qty=3
+  - ปลากระป๋อง: qty=2, amount=50 THB
+  - bang bang: qty=1, amount=5 THB
+เอนก: total=50 THB, qty=3
+  - โก๋แก่: qty=2, amount=40 THB
+  - ไอศครีมขนมปัง: qty=1, amount=10 THB
+กรพล: total=48 THB, qty=10
+  - bang bang: qty=8, amount=40 THB
+  - นมแท่ง: qty=1, amount=5 THB
+  - ช้างน้อย: qty=1, amount=3 THB
+นินนาท: total=47 THB, qty=4
+  - เลย์: qty=1, amount=20 THB
+  - ไอศครีมขนมปัง: qty=1, amount=10 THB
+  - ไอศครีมรสถั่วดำ: qty=1, amount=10 THB
+  - มาม่า: qty=1, amount=7 THB
+วีรภัทร: total=35 THB, qty=4
+  - คอนเน่: qty=1, amount=20 THB
+  - bang bang: qty=3, amount=15 THB
+พรชัย อ.: total=25 THB, qty=2
+  - มาม่าคัพ: qty=1, amount=15 THB
+  - ไอศครีมถ้วยบิ๊กคัพ: qty=1, amount=10 THB
+สุริยา: total=20 THB, qty=1
+  - คอนเน่: qty=1, amount=20 THB
+ฉันท์: total=20 THB, qty=1
+  - เลย์: qty=1, amount=20 THB
+เมย์: total=15 THB, qty=2
+  - ไอศครีมขนมปัง: qty=1, amount=10 THB
+  - นมแท่ง: qty=1, amount=5 THB
+
+--- Product sales (monthly) ---
+ไอศครีมรสถั่วดำ: sold=35, revenue=350 THB, cost=280 THB, profit=70 THB, margin=20.00%
+ไอศครีมถ้วยบิ๊กคัพ: sold=31, revenue=310 THB, cost=248 THB, profit=62 THB, margin=20.00%
+เลย์: sold=29, revenue=580 THB, cost=507.50 THB, profit=72.50 THB, margin=12.50%
+ไอศครีมขนมปัง: sold=24, revenue=240 THB, cost=192 THB, profit=48 THB, margin=20.00%
+bang bang: sold=24, revenue=120 THB, cost=103.92 THB, profit=16.08 THB, margin=13.40%
+ช้างน้อย: sold=24, revenue=72 THB, cost=69.84 THB, profit=2.16 THB, margin=3.00%
+มาม่า: sold=19, revenue=133 THB, cost=114 THB, profit=19 THB, margin=14.29%
+เบนโตะ: sold=17, revenue=85 THB, cost=73.61 THB, profit=11.39 THB, margin=13.40%
+ไอศครีมดูโอ้: sold=16, revenue=160 THB, cost=112 THB, profit=48 THB, margin=30.00%
+ไวไว: sold=15, revenue=105 THB, cost=90 THB, profit=15 THB, margin=14.29%
+โก๋แก่: sold=12, revenue=240 THB, cost=210 THB, profit=30 THB, margin=12.50%
+ทาโร่: sold=11, revenue=110 THB, cost=94.60 THB, profit=15.40 THB, margin=14.00%
+เจเล่: sold=11, revenue=110 THB, cost=91.30 THB, profit=18.70 THB, margin=17.00%
+นมแท่ง: sold=10, revenue=50 THB, cost=43.30 THB, profit=6.70 THB, margin=13.40%
+คอนเน่: sold=9, revenue=180 THB, cost=157.50 THB, profit=22.50 THB, margin=12.50%
+ไอศครีมดัชชี่เมล่อน: sold=9, revenue=90 THB, cost=72 THB, profit=18 THB, margin=20.00%
+มาม่าคัพ: sold=7, revenue=105 THB, cost=87.50 THB, profit=17.50 THB, margin=16.67%
+เทสโต: sold=6, revenue=120 THB, cost=105 THB, profit=15 THB, margin=12.50%
+ตะวัน: sold=5, revenue=100 THB, cost=87.50 THB, profit=12.50 THB, margin=12.50%
+ปลากระป๋อง: sold=4, revenue=100 THB, cost=88 THB, profit=12 THB, margin=12.00%
+BigBag: sold=4, revenue=80 THB, cost=70 THB, profit=10 THB, margin=12.50%
+ไอศครีมร็อคเก็ต: sold=4, revenue=40 THB, cost=32 THB, profit=8 THB, margin=20.00%
+แจ๊กซ์: sold=2, revenue=40 THB, cost=35 THB, profit=5 THB, margin=12.50%
+
+--- Product sales (cumulative) ---
+ไอศครีมรสถั่วดำ: sold=35, revenue=350 THB, cost=280 THB, profit=70 THB, margin=20.00%
+ไอศครีมถ้วยบิ๊กคัพ: sold=31, revenue=310 THB, cost=248 THB, profit=62 THB, margin=20.00%
+เลย์: sold=29, revenue=580 THB, cost=507.50 THB, profit=72.50 THB, margin=12.50%
+ไอศครีมขนมปัง: sold=24, revenue=240 THB, cost=192 THB, profit=48 THB, margin=20.00%
+bang bang: sold=24, revenue=120 THB, cost=103.92 THB, profit=16.08 THB, margin=13.40%
+ช้างน้อย: sold=24, revenue=72 THB, cost=69.84 THB, profit=2.16 THB, margin=3.00%
+มาม่า: sold=23, revenue=133 THB, cost=114 THB, profit=19 THB, margin=14.29%
+เบนโตะ: sold=17, revenue=85 THB, cost=73.61 THB, profit=11.39 THB, margin=13.40%
+ไอศครีมดูโอ้: sold=16, revenue=160 THB, cost=112 THB, profit=48 THB, margin=30.00%
+ไวไว: sold=15, revenue=105 THB, cost=90 THB, profit=15 THB, margin=14.29%
+โก๋แก่: sold=12, revenue=240 THB, cost=210 THB, profit=30 THB, margin=12.50%
+ทาโร่: sold=11, revenue=110 THB, cost=94.60 THB, profit=15.40 THB, margin=14.00%
+เจเล่: sold=11, revenue=110 THB, cost=91.30 THB, profit=18.70 THB, margin=17.00%
+นมแท่ง: sold=10, revenue=50 THB, cost=43.30 THB, profit=6.70 THB, margin=13.40%
+คอนเน่: sold=9, revenue=180 THB, cost=157.50 THB, profit=22.50 THB, margin=12.50%
+ไอศครีมดัชชี่เมล่อน: sold=9, revenue=90 THB, cost=72 THB, profit=18 THB, margin=20.00%
+มาม่าคัพ: sold=7, revenue=105 THB, cost=87.50 THB, profit=17.50 THB, margin=16.67%
+เทสโต: sold=6, revenue=120 THB, cost=105 THB, profit=15 THB, margin=12.50%
+ตะวัน: sold=5, revenue=100 THB, cost=87.50 THB, profit=12.50 THB, margin=12.50%
+ปลากระป๋อง: sold=4, revenue=100 THB, cost=88 THB, profit=12 THB, margin=12.00%
+BigBag: sold=4, revenue=80 THB, cost=70 THB, profit=10 THB, margin=12.50%
+ไอศครีมร็อคเก็ต: sold=4, revenue=40 THB, cost=32 THB, profit=8 THB, margin=20.00%
+แจ๊กซ์: sold=2, revenue=40 THB, cost=35 THB, profit=5 THB, margin=12.50%
+Pepsi: sold=0, revenue=0 THB, cost=0 THB, profit=0 THB, margin=0.00%
+Coke zero: sold=0, revenue=0 THB, cost=0 THB, profit=0 THB, margin=0.00%
+ไข่ไก่: sold=0, revenue=0 THB, cost=0 THB, profit=0 THB, margin=0.00%
+
+--- Sell-out forecast by product ---
+ไข่ไก่: stock=30, profit/unit=1.24 THB, total=37.20 THB
+มาม่า: stock=37, profit/unit=1 THB, total=37 THB
+BigBag: stock=14, profit/unit=2.50 THB, total=35 THB
+ไอศครีมถ้วยบิ๊กคัพ: stock=17, profit/unit=2 THB, total=34 THB
+เลย์: stock=13, profit/unit=2.50 THB, total=32.50 THB
+เจเล่: stock=19, profit/unit=1.70 THB, total=32.30 THB
+เทสโต: stock=12, profit/unit=2.50 THB, total=30 THB
+Pepsi: stock=24, profit/unit=0.92 THB, total=22.08 THB
+ปลากระป๋อง: stock=6, profit/unit=3 THB, total=18 THB
+Coke zero: stock=12, profit/unit=1.40 THB, total=16.80 THB
+ไวไว: stock=15, profit/unit=1 THB, total=15 THB
+มาม่าคัพ: stock=5, profit/unit=2.50 THB, total=12.50 THB
+ไอศครีมขนมปัง: stock=6, profit/unit=2 THB, total=12 THB
+ไอศครีมดูโอ้: stock=4, profit/unit=3 THB, total=12 THB
+ไอศครีมร็อคเก็ต: stock=6, profit/unit=2 THB, total=12 THB
+ไอศครีมรสถั่วดำ: stock=5, profit/unit=2 THB, total=10 THB
+คอนเน่: stock=3, profit/unit=2.50 THB, total=7.50 THB
+แจ๊กซ์: stock=2, profit/unit=2.50 THB, total=5 THB
+เบนโตะ: stock=7, profit/unit=0.67 THB, total=4.69 THB
+ตะวัน: stock=1, profit/unit=2.50 THB, total=2.50 THB
+ไอศครีมดัชชี่เมล่อน: stock=1, profit/unit=2 THB, total=2 THB
+ทาโร่: stock=1, profit/unit=1.40 THB, total=1.40 THB
+นมแท่ง: stock=2, profit/unit=0.67 THB, total=1.34 THB
+โก๋แก่: stock=0, profit/unit=2.50 THB, total=0 THB
+ช้างน้อย: stock=0, profit/unit=0.09 THB, total=0 THB
+bang bang: stock=0, profit/unit=0.67 THB, total=0 THB

@@ -407,9 +407,12 @@ function generateReport() {
             </div>
         </div>
 
-        <div style="margin-top: 25px; padding: 20px; background: linear-gradient(135deg, #f8f9fa, #ffffff); border-radius: 12px; border: 2px solid var(--border);">
-            <button class="btn btn-outline" onclick="exportReport()" style="width: 100%;">
+        <div style="margin-top: 25px; padding: 20px; background: linear-gradient(135deg, #f8f9fa, #ffffff); border-radius: 12px; border: 2px solid var(--border); display: flex; gap: 12px; flex-wrap: wrap;">
+            <button class="btn btn-outline" onclick="exportReport()" style="flex: 1; min-width: 200px;">
                 Export Profit Report (TXT)
+            </button>
+            <button class="btn btn-secondary" onclick="exportReportExcel()" style="flex: 1; min-width: 200px;">
+                Export Profit Report (Excel)
             </button>
         </div>
     `;
@@ -551,4 +554,239 @@ function exportReport() {
     URL.revokeObjectURL(url);
 
     showToast('✅ ส่งออกรายงานสำเร็จ!', 'success');
+}
+
+function exportReportExcel() {
+    if (typeof XLSX === 'undefined') {
+        showToast('⚠️ ไม่สามารถโหลด SheetJS library ได้', 'warning');
+        return;
+    }
+
+    const reportMonth = document.getElementById('reportMonth').value;
+    if (!reportMonth) return;
+
+    const { year, month, monthStart, monthEnd } = getMonthRange(reportMonth);
+    const monthName = new Date(year, month - 1).toLocaleDateString('th-TH', { year: 'numeric', month: 'long' });
+    const monthlyPurchases = purchases.filter((purchase) => {
+        const purchaseDate = new Date(purchase.date);
+        return purchaseDate >= monthStart && purchaseDate <= monthEnd;
+    });
+
+    const monthlyProductRows = buildMonthlyProductRows(monthlyPurchases);
+    const cumulativeProductRows = buildCumulativeProductRows();
+    const monthlyRevenue = monthlyProductRows.reduce((sum, row) => sumMoney(sum, row.revenue), 0);
+    const monthlyCost = monthlyProductRows.reduce((sum, row) => sumMoney(sum, row.cost), 0);
+    const monthlyProfit = toMoneyNumber(monthlyRevenue - monthlyCost);
+    const totalStock = snacks.reduce((sum, item) => sum + (Number(item.stock) || 0), 0);
+    const soldPiecesThisMonth = monthlyProductRows.reduce((sum, row) => sum + row.soldQty, 0);
+    const customerBilling = buildCustomerBilling(getOutstandingPurchases());
+    const sellOutForecast = snacks.map((item) => {
+        const stock = Number(item.stock) || 0;
+        const sellPrice = toMoneyNumber(item.price);
+        const costPrice = toMoneyNumber(item.costPrice);
+        const profitPerUnit = toMoneyNumber(sellPrice - costPrice);
+        const totalProfit = toMoneyNumber(profitPerUnit * stock);
+        return { name: item.name, stock, sellPrice, costPrice, profitPerUnit, totalProfit };
+    });
+    const potentialProfitAll = sellOutForecast.reduce((sum, row) => sumMoney(sum, row.totalProfit), 0);
+
+    const wb = XLSX.utils.book_new();
+
+    // --- Helper: apply column widths ---
+    function autoWidth(ws, data) {
+        if (!data || data.length === 0) return;
+        const colWidths = [];
+        data.forEach(row => {
+            row.forEach((cell, ci) => {
+                const len = cell != null ? String(cell).length : 0;
+                if (!colWidths[ci] || len > colWidths[ci]) colWidths[ci] = len;
+            });
+        });
+        ws['!cols'] = colWidths.map(w => ({ wch: Math.min(Math.max(w + 2, 8), 40) }));
+    }
+
+    // ===== Sheet 1: Summary =====
+    const summaryData = [
+        ['Snack Tracker - Profit Report'],
+        [monthName],
+        [],
+        ['รายการ', 'มูลค่า'],
+        ['ยอดขายรวม (บาท)', monthlyRevenue],
+        ['ต้นทุนรวม (บาท)', monthlyCost],
+        ['กำไรรวม (บาท)', monthlyProfit],
+        ['จำนวนรายการขาย', monthlyPurchases.length],
+        ['จำนวนชิ้นที่ขายได้', soldPiecesThisMonth],
+        ['สต็อกคงเหลือ (ชิ้น)', totalStock],
+        ['กำไรถ้าขายสต็อกหมด (บาท)', potentialProfitAll],
+        [],
+        ['Margin รวม (%)', monthlyRevenue > 0 ? toMoneyNumber((monthlyProfit / monthlyRevenue) * 100) : 0],
+    ];
+    const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+    autoWidth(wsSummary, summaryData);
+    // Merge title row
+    wsSummary['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 1 } },
+    ];
+    XLSX.utils.book_append_sheet(wb, wsSummary, 'สรุปภาพรวม');
+
+    // ===== Sheet 2: Customer Billing =====
+    const billingHeader = ['ลำดับ', 'ชื่อลูกค้า', 'จำนวน (ชิ้น)', 'ยอดรวม (บาท)', 'เฉลี่ย/ชิ้น (บาท)', 'รายการสินค้า'];
+    const billingRows = Object.entries(customerBilling)
+        .sort((a, b) => b[1].total - a[1].total)
+        .map(([name, data], idx) => {
+            const itemsText = Object.entries(data.items || {})
+                .sort((a, b) => b[1].total - a[1].total)
+                .map(([sn, item]) => `${sn} x${item.qty} (${formatMoneyText(item.total)})`)
+                .join(', ');
+            return [
+                idx + 1,
+                name,
+                data.count,
+                data.total,
+                toMoneyNumber(data.total / Math.max(1, data.count)),
+                itemsText
+            ];
+        });
+    const billingTotal = billingRows.reduce((sum, r) => sum + r[3], 0);
+    const billingQtyTotal = billingRows.reduce((sum, r) => sum + r[2], 0);
+    const billingData = [
+        ['ยอดค้างชำระ - ' + monthName],
+        [],
+        billingHeader,
+        ...billingRows,
+        [],
+        ['', 'รวมทั้งหมด', billingQtyTotal, billingTotal, '', '']
+    ];
+    const wsBilling = XLSX.utils.aoa_to_sheet(billingData);
+    autoWidth(wsBilling, billingData);
+    wsBilling['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }];
+    XLSX.utils.book_append_sheet(wb, wsBilling, 'ยอดค้างลูกค้า');
+
+    // ===== Sheet 3: Product Sales Monthly =====
+    const prodMonthlyHeader = ['ลำดับ', 'สินค้า', 'ขายได้ (ชิ้น)', 'ยอดขาย (บาท)', 'ต้นทุน (บาท)', 'กำไร (บาท)', 'Margin (%)', 'ราคาขายเฉลี่ย (บาท)'];
+    const prodMonthlyRows = monthlyProductRows.map((row, idx) => [
+        idx + 1,
+        row.name,
+        row.soldQty,
+        row.revenue,
+        row.cost,
+        row.profit,
+        toMoneyNumber(row.marginPct),
+        row.avgSellPrice
+    ]);
+    const prodMonthlyData = [
+        ['ยอดขายรายสินค้า (เดือน) - ' + monthName],
+        [],
+        prodMonthlyHeader,
+        ...prodMonthlyRows,
+        [],
+        ['', 'รวม', soldPiecesThisMonth, monthlyRevenue, monthlyCost, monthlyProfit, monthlyRevenue > 0 ? toMoneyNumber((monthlyProfit / monthlyRevenue) * 100) : 0, '']
+    ];
+    const wsProdMonthly = XLSX.utils.aoa_to_sheet(prodMonthlyData);
+    autoWidth(wsProdMonthly, prodMonthlyData);
+    wsProdMonthly['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+    XLSX.utils.book_append_sheet(wb, wsProdMonthly, 'ยอดขายรายเดือน');
+
+    // ===== Sheet 4: Product Sales Cumulative =====
+    const prodCumHeader = ['ลำดับ', 'สินค้า', 'ขายได้ (ชิ้น)', 'ยอดขาย (บาท)', 'ต้นทุน (บาท)', 'กำไร (บาท)', 'Margin (%)', 'ราคาขายเฉลี่ย (บาท)'];
+    const prodCumRows = cumulativeProductRows.map((row, idx) => [
+        idx + 1,
+        row.name,
+        row.soldQty,
+        row.revenue,
+        row.cost,
+        row.profit,
+        toMoneyNumber(row.marginPct),
+        row.avgSellPrice
+    ]);
+    const cumRevenue = cumulativeProductRows.reduce((sum, r) => sumMoney(sum, r.revenue), 0);
+    const cumCost = cumulativeProductRows.reduce((sum, r) => sumMoney(sum, r.cost), 0);
+    const cumProfit = toMoneyNumber(cumRevenue - cumCost);
+    const cumQty = cumulativeProductRows.reduce((sum, r) => sum + r.soldQty, 0);
+    const prodCumData = [
+        ['ยอดขายสะสมทั้งหมด'],
+        [],
+        prodCumHeader,
+        ...prodCumRows,
+        [],
+        ['', 'รวม', cumQty, cumRevenue, cumCost, cumProfit, cumRevenue > 0 ? toMoneyNumber((cumProfit / cumRevenue) * 100) : 0, '']
+    ];
+    const wsProdCum = XLSX.utils.aoa_to_sheet(prodCumData);
+    autoWidth(wsProdCum, prodCumData);
+    wsProdCum['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+    XLSX.utils.book_append_sheet(wb, wsProdCum, 'ยอดขายสะสม');
+
+    // ===== Sheet 5: Sell-out Forecast =====
+    const forecastHeader = ['ลำดับ', 'สินค้า', 'สต็อก (ชิ้น)', 'ราคาขาย (บาท)', 'ต้นทุน (บาท)', 'กำไร/ชิ้น (บาท)', 'กำไรรวม (บาท)'];
+    const forecastRows = sellOutForecast
+        .sort((a, b) => b.totalProfit - a.totalProfit)
+        .map((row, idx) => [
+            idx + 1,
+            row.name,
+            row.stock,
+            row.sellPrice,
+            row.costPrice,
+            row.profitPerUnit,
+            row.totalProfit
+        ]);
+    const forecastData = [
+        ['พยากรณ์กำไร - ถ้าขายสต็อกหมด'],
+        [],
+        forecastHeader,
+        ...forecastRows,
+        [],
+        ['', 'รวม', forecastRows.reduce((s, r) => s + r[2], 0), '', '', '', potentialProfitAll]
+    ];
+    const wsForecast = XLSX.utils.aoa_to_sheet(forecastData);
+    autoWidth(wsForecast, forecastData);
+    wsForecast['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 6 } }];
+    XLSX.utils.book_append_sheet(wb, wsForecast, 'พยากรณ์กำไร');
+
+    // ===== Sheet 6: Customer Detail (all purchases this month) =====
+    const custDetailHeader = ['ลำดับ', 'วันที่', 'เวลา', 'ลูกค้า', 'สินค้า', 'ราคา (บาท)', 'ต้นทุน (บาท)', 'กำไร (บาท)'];
+    const sortedMonthly = [...monthlyPurchases].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const custDetailRows = sortedMonthly.map((p, idx) => {
+        const dt = new Date(p.date);
+        const dateStr = dt.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const timeStr = dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+        const unitPrice = getUnitPrice(p);
+        const unitCost = getUnitCost(p);
+        return [
+            idx + 1,
+            dateStr,
+            timeStr,
+            p.customerName || '',
+            getSnackName(p),
+            unitPrice,
+            unitCost,
+            toMoneyNumber(unitPrice - unitCost)
+        ];
+    });
+    const custDetailData = [
+        ['รายการขายทั้งหมด - ' + monthName],
+        [],
+        custDetailHeader,
+        ...custDetailRows,
+        [],
+        ['', '', '', '', 'รวม', monthlyRevenue, monthlyCost, monthlyProfit]
+    ];
+    const wsCustDetail = XLSX.utils.aoa_to_sheet(custDetailData);
+    autoWidth(wsCustDetail, custDetailData);
+    wsCustDetail['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+    XLSX.utils.book_append_sheet(wb, wsCustDetail, 'รายการขายทั้งหมด');
+
+    // Write and download
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `profit_report_${reportMonth}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    showToast('✅ ส่งออก Excel สำเร็จ!', 'success');
 }

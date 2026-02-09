@@ -507,7 +507,7 @@
                 else if (stock <= 5) { stockClass = 'low-stock'; stockText = `เหลือ ${stock}!`; }
 
                 return `
-                    <div class="snack-item ${soldOut ? 'sold-out' : ''}" onclick="${soldOut ? '' : `selectSnack(${snack.id})`}">
+                    <div class="snack-item ${soldOut ? 'sold-out' : ''}" onclick="selectSnack(${snack.id})">
                         ${getSnackDisplayHTML(snack, 'grid')}
                         <div class="snack-name">${snack.name}</div>
                         <div class="snack-price">${snack.price} ฿</div>
@@ -555,27 +555,77 @@
             selectedCustomers = {};
             activeShift = 'all';
 
+            const isSoldOut = !selectedSnack || (selectedSnack.stock || 0) <= 0;
+
             // Update modal content
             document.getElementById('selectedSnackEmoji').innerHTML = getSnackDisplayHTML(selectedSnack, 'modal');
             document.getElementById('selectedSnackName').textContent = selectedSnack.name;
             document.getElementById('selectedSnackPrice').textContent = selectedSnack.price;
 
-            // Clear search
-            document.getElementById('customerSearch').value = '';
+            // Show/hide purchase UI based on stock
+            const searchBox = document.querySelector('#customerModal .search-box');
+            const shiftFilter = document.getElementById('shiftFilter');
+            const customerTitle = document.querySelector('#customerModal .customer-section-title');
+            const customerGrid = document.getElementById('customerGrid');
+            const confirmSection = document.getElementById('confirmSection');
 
-            // Hide confirm section
-            updateConfirmSection();
+            // Remove old sold-out banner if exists
+            const oldBanner = document.getElementById('soldOutBanner');
+            if (oldBanner) oldBanner.remove();
 
-            // Render customer grid
-            renderCustomerGrid();
+            if (isSoldOut) {
+                // Hide purchase UI
+                if (searchBox) searchBox.style.display = 'none';
+                if (shiftFilter) shiftFilter.style.display = 'none';
+                if (customerTitle) customerTitle.style.display = 'none';
+                if (customerGrid) customerGrid.style.display = 'none';
+                if (confirmSection) confirmSection.style.display = 'none';
+
+                // Add sold-out banner after price display
+                const priceDisplay = document.querySelector('#customerModal .price-display');
+                if (priceDisplay) {
+                    const banner = document.createElement('div');
+                    banner.id = 'soldOutBanner';
+                    banner.className = 'sold-out-banner';
+                    banner.textContent = 'สินค้าหมด - ดูประวัติการซื้อ';
+                    priceDisplay.insertAdjacentElement('afterend', banner);
+                }
+
+                // Auto-expand history
+                snackHistoryPage = 1;
+                snackHistoryExpanded = true;
+                renderSnackPurchaseHistory(selectedSnack.id, 1);
+            } else {
+                // Show purchase UI
+                if (searchBox) searchBox.style.display = '';
+                if (shiftFilter) shiftFilter.style.display = '';
+                if (customerTitle) customerTitle.style.display = '';
+                if (customerGrid) customerGrid.style.display = '';
+
+                // Clear search
+                document.getElementById('customerSearch').value = '';
+
+                // Hide confirm section
+                updateConfirmSection();
+
+                // Render customer grid
+                renderCustomerGrid();
+
+                // Reset history state and render
+                snackHistoryPage = 1;
+                snackHistoryExpanded = false;
+                renderSnackPurchaseHistory(selectedSnack.id, 1);
+            }
 
             // Show modal
             document.getElementById('customerModal').classList.add('active');
 
-            // Focus on search after modal animation
-            setTimeout(() => {
-                document.getElementById('customerSearch').focus();
-            }, 300);
+            // Focus on search after modal animation (only if not sold out)
+            if (!isSoldOut) {
+                setTimeout(() => {
+                    document.getElementById('customerSearch').focus();
+                }, 300);
+            }
         }
 
         // Render customer grid
@@ -597,7 +647,18 @@
                     return `
                         <div class="customer-btn selected ${shiftClass}" onclick="selectCustomer('${name}')">
                             <button class="qty-btn qty-btn-minus" onclick="event.stopPropagation(); changeQty('${name}', -1)">-</button>
-                            <span class="customer-name-label">${name} <strong>(${qty})</strong></span>
+                            <span class="customer-name-label">${name}</span>
+                            <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                class="qty-input"
+                                value="${qty}"
+                                onclick="event.stopPropagation()"
+                                onfocus="event.stopPropagation()"
+                                onkeydown="event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); applyQtyInput('${name}', this.value); }"
+                                onblur="applyQtyInput('${name}', this.value)"
+                            />
                             <button class="qty-btn qty-btn-plus" onclick="event.stopPropagation(); changeQty('${name}', 1)">+</button>
                         </div>
                     `;
@@ -680,6 +741,19 @@
                 delete selectedCustomers[name];
             } else {
                 selectedCustomers[name] = newQty;
+            }
+
+            const searchTerm = document.getElementById('customerSearch').value;
+            renderCustomerGrid(searchTerm);
+            updateConfirmSection();
+        }
+
+        function applyQtyInput(name, rawValue) {
+            const parsed = Math.floor(Number(rawValue));
+            if (!Number.isFinite(parsed) || parsed <= 0) {
+                delete selectedCustomers[name];
+            } else {
+                selectedCustomers[name] = parsed;
             }
 
             const searchTerm = document.getElementById('customerSearch').value;
@@ -786,6 +860,20 @@
             selectedSnack = null;
             selectedCustomers = {};
             updateCustomerModalWidth();
+
+            // Restore purchase UI visibility for next open
+            const searchBox = document.querySelector('#customerModal .search-box');
+            const shiftFilter = document.getElementById('shiftFilter');
+            const customerTitle = document.querySelector('#customerModal .customer-section-title');
+            const customerGrid = document.getElementById('customerGrid');
+            if (searchBox) searchBox.style.display = '';
+            if (shiftFilter) shiftFilter.style.display = '';
+            if (customerTitle) customerTitle.style.display = '';
+            if (customerGrid) customerGrid.style.display = '';
+
+            // Remove sold-out banner
+            const banner = document.getElementById('soldOutBanner');
+            if (banner) banner.remove();
         }
 
         // Update today's summary
@@ -858,6 +946,110 @@
                 toast.style.animation = 'slideInFromRight 0.4s ease-out reverse';
                 setTimeout(() => toast.remove(), 400);
             }, 3000);
+        }
+
+        // === Snack Purchase History ===
+        let snackHistoryPage = 1;
+        const HISTORY_PER_PAGE = 20;
+        let snackHistoryExpanded = false;
+
+        function renderSnackPurchaseHistory(snackId, page) {
+            const section = document.getElementById('snackHistorySection');
+            const content = document.getElementById('snackHistoryContent');
+            const countEl = document.getElementById('snackHistoryCount');
+            const toggleEl = document.getElementById('snackHistoryToggle');
+
+            if (!section || !content) return;
+
+            const historyItems = purchases
+                .filter(p => p.snack && p.snack.id === snackId)
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            if (historyItems.length === 0) {
+                section.style.display = 'none';
+                return;
+            }
+
+            section.style.display = 'block';
+            countEl.textContent = `(${historyItems.length} รายการ)`;
+
+            if (!snackHistoryExpanded) {
+                content.style.display = 'none';
+                toggleEl.textContent = '▼';
+                return;
+            }
+
+            content.style.display = 'block';
+            toggleEl.textContent = '▲';
+
+            const totalPages = Math.ceil(historyItems.length / HISTORY_PER_PAGE);
+            if (page < 1) page = 1;
+            if (page > totalPages) page = totalPages;
+            snackHistoryPage = page;
+
+            const startIdx = (page - 1) * HISTORY_PER_PAGE;
+            const pageItems = historyItems.slice(startIdx, startIdx + HISTORY_PER_PAGE);
+
+            let html = '<div class="history-list">';
+            pageItems.forEach((p, idx) => {
+                const dt = new Date(p.date);
+                const dateStr = dt.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+                const timeStr = dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+                const globalIdx = startIdx + idx + 1;
+                html += `
+                    <div class="history-item">
+                        <div class="history-item-rank">${globalIdx}</div>
+                        <div class="history-item-info">
+                            <div class="history-item-name">${p.customerName}</div>
+                            <div class="history-item-date">${dateStr} ${timeStr}</div>
+                        </div>
+                        <div class="history-item-price">${p.price} &#3647;</div>
+                    </div>`;
+            });
+            html += '</div>';
+
+            if (totalPages > 1) {
+                html += '<div class="history-pagination">';
+                html += `<button class="history-page-btn" onclick="goSnackHistoryPage(${page - 1})" ${page <= 1 ? 'disabled' : ''}>&#9664;</button>`;
+
+                const maxVisiblePages = 5;
+                let startPage = Math.max(1, page - Math.floor(maxVisiblePages / 2));
+                let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+                if (endPage - startPage + 1 < maxVisiblePages) {
+                    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+                }
+
+                if (startPage > 1) {
+                    html += `<button class="history-page-btn" onclick="goSnackHistoryPage(1)">1</button>`;
+                    if (startPage > 2) html += '<span class="history-page-dots">...</span>';
+                }
+
+                for (let i = startPage; i <= endPage; i++) {
+                    html += `<button class="history-page-btn ${i === page ? 'active' : ''}" onclick="goSnackHistoryPage(${i})">${i}</button>`;
+                }
+
+                if (endPage < totalPages) {
+                    if (endPage < totalPages - 1) html += '<span class="history-page-dots">...</span>';
+                    html += `<button class="history-page-btn" onclick="goSnackHistoryPage(${totalPages})">${totalPages}</button>`;
+                }
+
+                html += `<button class="history-page-btn" onclick="goSnackHistoryPage(${page + 1})" ${page >= totalPages ? 'disabled' : ''}>&#9654;</button>`;
+                html += '</div>';
+            }
+
+            content.innerHTML = html;
+        }
+
+        function goSnackHistoryPage(page) {
+            if (!selectedSnack) return;
+            renderSnackPurchaseHistory(selectedSnack.id, page);
+        }
+
+        function toggleSnackHistory() {
+            snackHistoryExpanded = !snackHistoryExpanded;
+            if (selectedSnack) {
+                renderSnackPurchaseHistory(selectedSnack.id, snackHistoryPage);
+            }
         }
 
         // Save purchases to localStorage

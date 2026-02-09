@@ -149,7 +149,7 @@
                 </div>
                 <div id="profitSummaryCards" class="stats-grid" style="margin-top: 15px;"></div>
                 <div class="card" style="margin-top: 15px; padding: 20px;">
-                    <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 12px; color: var(--text-dark);">ต้นทุนสต็อกคงเหลือ (ทุกรายการ)</h4>
+                    <h4 style="font-family: 'Mitr', sans-serif; margin-bottom: 12px; color: var(--text-dark);">ต้นทุนสินค้า (ขายไป+คงเหลือ)</h4>
                     <div id="stockCostList" class="customer-detail-list"></div>
                 </div>
                 <div class="card" style="margin-top: 15px; padding: 20px;">
@@ -241,6 +241,15 @@
                     ✅ บันทึกทั้งหมด
                 </button>
             </div>
+
+            <div id="snackHistorySection" style="display: none; margin-top: 20px; padding-top: 15px; border-top: 2px solid var(--border);">
+                <div class="history-section-title" onclick="toggleSnackHistory()">
+                    <span>📜 ประวัติการซื้อสินค้านี้</span>
+                    <span id="snackHistoryCount" class="history-count"></span>
+                    <span id="snackHistoryToggle" class="history-toggle">▼</span>
+                </div>
+                <div id="snackHistoryContent" style="display: none;"></div>
+            </div>
         </div>
     </div>
 
@@ -265,6 +274,7 @@
             <div id="reportContent"></div>
         </div>
     </div>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
     <script src="assets/js/modules/core.js"></script>
     <script src="assets/js/modules/report.js"></script>
     <script src="assets/js/modules/manage.js"></script>

@@ -84,19 +84,34 @@
             const totalProfit = rows.reduce((sum, r) => toMoneyNumber(sum + r.profit), 0);
             const totalSoldQty = rows.reduce((sum, r) => sum + r.soldQty, 0);
             const totalMarginPct = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+            const soldQtyBySnackId = new Map();
+            (Array.isArray(purchases) ? purchases : []).forEach((p) => {
+                const snackId = Number(p?.snack?.id);
+                if (!Number.isFinite(snackId)) return;
+                const qty = Math.max(1, Number(p?.qty) || 1);
+                soldQtyBySnackId.set(snackId, (soldQtyBySnackId.get(snackId) || 0) + qty);
+            });
+
             const stockCostRows = snacks
                 .map((s) => {
+                    const snackId = Number(s?.id);
+                    const soldByPurchases = Number(soldQtyBySnackId.get(snackId) || 0);
+                    const soldByField = Math.max(0, Number(s?.totalSold) || 0);
+                    const soldQty = Math.max(soldByPurchases, soldByField);
                     const stock = Math.max(0, Number(s?.stock) || 0);
+                    const totalUnits = soldQty + stock;
                     const costPrice = Math.max(0, toMoneyNumber(s?.costPrice));
-                    const stockCost = toMoneyNumber(stock * costPrice);
+                    const stockCost = toMoneyNumber(totalUnits * costPrice);
                     return {
                         snackName: s?.name || 'Unknown',
+                        soldQty,
                         stock,
+                        totalUnits,
                         costPrice,
                         stockCost
                     };
                 })
-                .sort((a, b) => b.stockCost - a.stockCost || b.stock - a.stock || a.snackName.localeCompare(b.snackName));
+                .sort((a, b) => b.stockCost - a.stockCost || b.totalUnits - a.totalUnits || a.snackName.localeCompare(b.snackName));
             const totalStockCostAll = stockCostRows.reduce((sum, row) => toMoneyNumber(sum + row.stockCost), 0);
             const potentialProfitAllStock = snacks.reduce((sum, s) => {
                 const sell = toMoneyNumber(s.price);
@@ -139,7 +154,7 @@
                     <div class="stat-value">${formatMoneyText(potentialProfitAllStock)} &#3647;</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-label">มูลค่าทุนสต็อกทั้งหมด</div>
+                    <div class="stat-label">มูลค่าทุนรวม (ขายไป+คงเหลือ)</div>
                     <div class="stat-value">${formatMoneyText(totalStockCostAll)} &#3647;</div>
                 </div>
             `;
@@ -154,7 +169,11 @@
                             <div class="customer-detail-total">${formatMoneyText(row.stockCost)} &#3647;</div>
                         </div>
                         <div class="customer-detail-info">
+                            <span>ขายไป ${row.soldQty} ชิ้น</span>
                             <span>คงเหลือ ${row.stock} ชิ้น</span>
+                        </div>
+                        <div class="customer-detail-info">
+                            <span>รวม ${row.totalUnits} ชิ้น</span>
                             <span>ทุน/ชิ้น ${formatMoneyText(row.costPrice)} &#3647;</span>
                         </div>
                     </div>
