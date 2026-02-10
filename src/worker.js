@@ -38,6 +38,10 @@ function toMoney(value, fallback = 0) {
   return Number(n.toFixed(2));
 }
 
+function toQty(value, fallback = 0) {
+  return toMoney(value, fallback);
+}
+
 function toText(value, fallback = "") {
   if (typeof value === "string") return value;
   if (value === null || value === undefined) return fallback;
@@ -73,8 +77,8 @@ function normalizeSnack(snack, idx) {
     price: Math.max(0, toMoney(snack?.sellPrice ?? snack?.price, 0)),
     sellPrice: Math.max(0, toMoney(snack?.sellPrice ?? snack?.price, 0)),
     costPrice: Math.max(0, toMoney(snack?.costPrice, 0)),
-    totalSold: Math.max(0, toInt(snack?.totalSold, 0)),
-    stock: Math.max(0, toInt(snack?.stock, 0))
+    totalSold: Math.max(0, toQty(snack?.totalSold, 0)),
+    stock: Math.max(0, toQty(snack?.stock, 0))
   };
 }
 
@@ -99,7 +103,7 @@ function normalizeUser(user, idx) {
 function normalizePurchase(purchase, idx) {
   const snack = purchase?.snack && typeof purchase.snack === "object" ? purchase.snack : {};
   const settledRaw = purchase?.settledAt ?? purchase?.settled_at ?? null;
-  const qty = Math.max(1, toInt(purchase?.qty, 1));
+  const qty = Math.max(0.01, toQty(purchase?.qty, 1));
   const unitPrice = Math.max(0, toMoney(purchase?.unitPrice ?? purchase?.price ?? snack?.price, 0));
   const unitCost = Math.max(0, toMoney(purchase?.unitCost ?? snack?.costPrice, 0));
   const lineRevenue = Math.max(0, toMoney(purchase?.lineRevenue ?? purchase?.revenue ?? (qty * unitPrice), 0));
@@ -116,7 +120,7 @@ function normalizePurchase(purchase, idx) {
     snackId: snack?.id !== null && snack?.id !== undefined ? toInt(snack.id, null) : null,
     snackName: toText(snack?.name, "Unknown"),
     snackEmoji: snack?.emoji ? toText(snack.emoji) : null,
-    snackStock: snack?.stock !== null && snack?.stock !== undefined ? toInt(snack.stock, null) : null,
+    snackStock: snack?.stock !== null && snack?.stock !== undefined ? toQty(snack.stock, null) : null,
     price: unitPrice,
     qty,
     unitCost,
@@ -142,8 +146,8 @@ async function ensureSchema(sql) {
         price NUMERIC(12,2) NOT NULL,
         cost_price NUMERIC(12,2) NOT NULL DEFAULT 0,
         sell_price NUMERIC(12,2) NOT NULL DEFAULT 0,
-        total_sold INTEGER NOT NULL DEFAULT 0,
-        stock INTEGER NOT NULL DEFAULT 0
+        total_sold NUMERIC(12,2) NOT NULL DEFAULT 0,
+        stock NUMERIC(12,2) NOT NULL DEFAULT 0
       )
     `;
     await sql`
@@ -167,9 +171,9 @@ async function ensureSchema(sql) {
         snack_name TEXT NOT NULL,
         snack_emoji TEXT,
         snack_image TEXT,
-        snack_stock INTEGER,
+        snack_stock NUMERIC(12,2),
         price NUMERIC(12,2) NOT NULL,
-        qty INTEGER NOT NULL DEFAULT 1,
+        qty NUMERIC(12,2) NOT NULL DEFAULT 1,
         unit_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
         unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
         line_revenue NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -183,8 +187,13 @@ async function ensureSchema(sql) {
     await sql`ALTER TABLE snacks ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'snack'`;
     await sql`ALTER TABLE snacks ADD COLUMN IF NOT EXISTS cost_price NUMERIC(12,2) NOT NULL DEFAULT 0`;
     await sql`ALTER TABLE snacks ADD COLUMN IF NOT EXISTS sell_price NUMERIC(12,2) NOT NULL DEFAULT 0`;
-    await sql`ALTER TABLE snacks ADD COLUMN IF NOT EXISTS total_sold INTEGER NOT NULL DEFAULT 0`;
-    await sql`ALTER TABLE purchases ADD COLUMN IF NOT EXISTS qty INTEGER NOT NULL DEFAULT 1`;
+    await sql`ALTER TABLE snacks ADD COLUMN IF NOT EXISTS total_sold NUMERIC(12,2) NOT NULL DEFAULT 0`;
+    await sql`ALTER TABLE snacks ALTER COLUMN stock TYPE NUMERIC(12,2) USING ROUND(stock::numeric, 2)`;
+    await sql`ALTER TABLE snacks ALTER COLUMN total_sold TYPE NUMERIC(12,2) USING ROUND(total_sold::numeric, 2)`;
+    await sql`ALTER TABLE purchases ADD COLUMN IF NOT EXISTS qty NUMERIC(12,2) NOT NULL DEFAULT 1`;
+    await sql`ALTER TABLE purchases ADD COLUMN IF NOT EXISTS snack_stock NUMERIC(12,2)`;
+    await sql`ALTER TABLE purchases ALTER COLUMN qty TYPE NUMERIC(12,2) USING ROUND(qty::numeric, 2)`;
+    await sql`ALTER TABLE purchases ALTER COLUMN snack_stock TYPE NUMERIC(12,2) USING ROUND(snack_stock::numeric, 2)`;
     await sql`ALTER TABLE purchases ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,2) NOT NULL DEFAULT 0`;
     await sql`ALTER TABLE purchases ADD COLUMN IF NOT EXISTS unit_price NUMERIC(12,2) NOT NULL DEFAULT 0`;
     await sql`ALTER TABLE purchases ADD COLUMN IF NOT EXISTS line_revenue NUMERIC(12,2) NOT NULL DEFAULT 0`;

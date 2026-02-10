@@ -50,11 +50,12 @@
             monthlyPurchases.forEach(p => {
                 const snackId = p?.snack?.id ?? p?.snack?.name ?? 'unknown';
                 const snackName = p?.snack?.name || 'Unknown';
-                const sell = toMoneyNumber(p.unitPrice ?? p.price);
-                const cost = toMoneyNumber(p.unitCost ?? p.snack?.costPrice);
-                const profit = Number.isFinite(Number(p.profit))
-                    ? toMoneyNumber(p.profit)
-                    : toMoneyNumber(sell - cost);
+                const qty = Math.max(0.01, toMoneyNumber(p?.qty ?? 1));
+                const unitSell = toMoneyNumber(p.unitPrice ?? p.price);
+                const unitCost = toMoneyNumber(p.unitCost ?? p.snack?.costPrice);
+                const revenue = toMoneyNumber(qty * unitSell);
+                const cost = toMoneyNumber(qty * unitCost);
+                const profit = toMoneyNumber(revenue - cost);
 
                 if (!rowsByProduct.has(snackId)) {
                     rowsByProduct.set(snackId, {
@@ -66,8 +67,8 @@
                     });
                 }
                 const row = rowsByProduct.get(snackId);
-                row.soldQty += 1;
-                row.revenue = toMoneyNumber(row.revenue + sell);
+                row.soldQty = toMoneyNumber(row.soldQty + qty);
+                row.revenue = toMoneyNumber(row.revenue + revenue);
                 row.cost = toMoneyNumber(row.cost + cost);
                 row.profit = toMoneyNumber(row.profit + profit);
             });
@@ -82,13 +83,13 @@
             const totalRevenue = rows.reduce((sum, r) => toMoneyNumber(sum + r.revenue), 0);
             const totalCost = rows.reduce((sum, r) => toMoneyNumber(sum + r.cost), 0);
             const totalProfit = rows.reduce((sum, r) => toMoneyNumber(sum + r.profit), 0);
-            const totalSoldQty = rows.reduce((sum, r) => sum + r.soldQty, 0);
+            const totalSoldQty = toMoneyNumber(rows.reduce((sum, r) => sum + r.soldQty, 0));
             const totalMarginPct = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
             const soldQtyBySnackId = new Map();
             (Array.isArray(purchases) ? purchases : []).forEach((p) => {
                 const snackId = Number(p?.snack?.id);
                 if (!Number.isFinite(snackId)) return;
-                const qty = Math.max(1, Number(p?.qty) || 1);
+                const qty = Math.max(0.01, Number(p?.qty) || 1);
                 soldQtyBySnackId.set(snackId, (soldQtyBySnackId.get(snackId) || 0) + qty);
             });
 
@@ -726,7 +727,7 @@
                     </div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span style="font-size: 0.85rem; color: var(--text-light);">คลัง:</span>
-                        <input type="number" class="manage-stock-input" value="${s.stock || 0}" min="0"
+                        <input type="number" class="manage-stock-input" value="${s.stock || 0}" min="0" step="0.5"
                                onchange="updateStock(${s.id}, this.value)">
                         <button class="btn-stock" onclick="addStock(${s.id}, 10)">+10</button>
                         <button class="btn-edit" onclick="startEditSnack(${s.id})">แก้ไข</button>
@@ -765,13 +766,21 @@
             }
         }
 
+        async function syncSnackDbFirst(snack, options = {}) {
+            const includeImage = Boolean(options?.includeImage);
+            const directOk = await syncSnackNow(snack, { silent: true, includeImage });
+            if (directOk) return true;
+            const fullStateOk = await flushStateSync();
+            return Boolean(fullStateOk);
+        }
+
         async function addSnack() {
             if (!ensureCanManageData()) return;
             const name = document.getElementById('newSnackName').value.trim();
             const price = Number(document.getElementById('newSnackPrice').value);
             const costPrice = Number(document.getElementById('newSnackCost').value) || 0;
             const category = normalizeSnackCategory(document.getElementById('newSnackCategory').value, name);
-            const stock = parseInt(document.getElementById('newSnackStock').value) || 0;
+            const stock = Number(document.getElementById('newSnackStock').value) || 0;
 
             if (!pendingSnackImage) { showToast('⚠️ กรุณาเลือกรูปสินค้า', 'warning'); return; }
             if (!name) { showToast('⚠️ กรุณาใส่ชื่อสินค้า', 'warning'); return; }
@@ -789,7 +798,7 @@
                 throw new Error('ไม่พบข้อมูลสินค้าที่สร้างใหม่');
             }
 
-            const ok = await syncSnackNow(newSnack);
+            const ok = await syncSnackDbFirst(newSnack, { includeImage: true });
             if (!ok) {
                 snacks = previousSnacks;
                 renderManageSnackList();
@@ -823,7 +832,7 @@
             const price = Number(document.getElementById('newSnackPrice').value);
             const costPrice = Number(document.getElementById('newSnackCost').value) || 0;
             const category = normalizeSnackCategory(document.getElementById('newSnackCategory').value, name);
-            const stock = parseInt(document.getElementById('newSnackStock').value);
+            const stock = Number(document.getElementById('newSnackStock').value);
             const oldPrice = Number(snack.price) || 0;
 
             if (!name) { showToast('⚠️ กรุณาใส่ชื่อสินค้า', 'warning'); return; }
@@ -846,7 +855,7 @@
                 snack.emoji = '';
             }
 
-            const ok = await syncSnackNow(snack);
+            const ok = await syncSnackDbFirst(snack, { includeImage: Boolean(pendingSnackImage) });
             if (!ok) {
                 Object.assign(snack, previousSnack);
                 renderManageSnackList();
@@ -876,8 +885,8 @@
             const snack = snacks.find(s => s.id === id);
             if (snack) {
                 const previousStock = snack.stock;
-                snack.stock = Math.max(0, parseInt(value) || 0);
-                const ok = await syncSnackNow(snack);
+                snack.stock = Math.max(0, Number(value) || 0);
+                const ok = await syncSnackDbFirst(snack);
                 if (!ok) {
                     snack.stock = previousStock;
                     showToast('⚠️ ซิงค์ฐานข้อมูลไม่สำเร็จ ยกเลิกการเปลี่ยนคลัง', 'warning');
@@ -897,7 +906,7 @@
             if (snack) {
                 const previousStock = snack.stock || 0;
                 snack.stock = (snack.stock || 0) + amount;
-                const ok = await syncSnackNow(snack);
+                const ok = await syncSnackDbFirst(snack);
                 if (!ok) {
                     snack.stock = previousStock;
                     showToast('⚠️ ซิงค์ฐานข้อมูลไม่สำเร็จ ยกเลิกการเพิ่มคลัง', 'warning');

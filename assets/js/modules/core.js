@@ -79,6 +79,27 @@
             }));
         }
 
+        function toQtyNumber(value, fallback = 0) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return fallback;
+            return Number(n.toFixed(2));
+        }
+
+        function formatQtyText(value) {
+            const n = toQtyNumber(value, 0);
+            return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '');
+        }
+
+        function getPurchaseQty(purchase) {
+            return Math.max(0.01, toQtyNumber(purchase?.qty, 1));
+        }
+
+        function getPurchaseLineRevenue(purchase) {
+            const qty = getPurchaseQty(purchase);
+            const unitPrice = Math.max(0, Number(purchase?.unitPrice ?? purchase?.price) || 0);
+            return Math.max(0, Number((qty * unitPrice).toFixed(2)));
+        }
+
         snacks = normalizeSnackData(snacks);
 
         function buildCurrentState() {
@@ -104,10 +125,16 @@
             const silent = options && options.silent === true;
             if (!remoteSyncEnabled && !force) return false;
             try {
+                const state = buildCurrentState();
+                state.snacks = state.snacks.map(function(s) {
+                    const copy = { ...s };
+                    delete copy.image;
+                    return copy;
+                });
                 const res = await fetch('/api/state', {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ state: buildCurrentState() })
+                    body: JSON.stringify({ state })
                 });
                 if (!res.ok) {
                     let msg = `HTTP ${res.status}`;
@@ -160,15 +187,21 @@
             return changed;
         }
 
-        async function syncSnackNow(snack) {
+        async function syncSnackNow(snack, options = {}) {
             if (!snack || !snack.id) return false;
+            const silent = Boolean(options?.silent);
+            const includeImage = Boolean(options?.includeImage);
             const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-            const timer = controller ? setTimeout(() => controller.abort(), 10000) : null;
+            const timer = controller ? setTimeout(() => controller.abort(), 15000) : null;
             try {
+                const payload = { ...snack };
+                if (!includeImage) {
+                    delete payload.image;
+                }
                 const res = await fetch(`/api/snacks/${encodeURIComponent(snack.id)}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ snack }),
+                    body: JSON.stringify({ snack: payload }),
                     signal: controller ? controller.signal : undefined
                 });
                 if (!res.ok) {
@@ -176,20 +209,24 @@
                     try {
                         const body = await res.json();
                         if (body?.error) msg = body.error;
+                        if (body?.detail) msg = `${msg} (${body.detail})`;
+                        if (Array.isArray(body?.details) && body.details.length > 0) {
+                            msg = `${msg} (${body.details[0]})`;
+                        }
                     } catch (_e) {
                         // ignore parse error
                     }
-                    showToast(`⚠️ อัปเดตราคาสินค้าไม่สำเร็จ: ${msg}`, 'warning');
+                    if (!silent) showToast(`⚠️ อัปเดตราคาสินค้าไม่สำเร็จ: ${msg}`, 'warning');
                     return false;
                 }
                 remoteSyncEnabled = true;
                 return true;
             } catch (err) {
                 if (err?.name === 'AbortError') {
-                    showToast('⚠️ อัปเดตสินค้านานเกินไป ระบบจะซิงค์แบบเต็มให้อัตโนมัติ', 'warning');
+                    if (!silent) showToast('⚠️ อัปเดตสินค้านานเกินไป ระบบจะซิงค์แบบเต็มให้อัตโนมัติ', 'warning');
                     return false;
                 }
-                showToast('⚠️ เชื่อมต่อฐานข้อมูลไม่ได้ขณะอัปเดตสินค้า', 'warning');
+                if (!silent) showToast('⚠️ เชื่อมต่อฐานข้อมูลไม่ได้ขณะอัปเดตสินค้า', 'warning');
                 return false;
             } finally {
                 if (timer) clearTimeout(timer);
@@ -435,8 +472,8 @@
                 if (!customerTotals[p.customerName]) {
                     customerTotals[p.customerName] = { total: 0, count: 0 };
                 }
-                customerTotals[p.customerName].total += p.price;
-                customerTotals[p.customerName].count += 1;
+                customerTotals[p.customerName].total = Number((customerTotals[p.customerName].total + getPurchaseLineRevenue(p)).toFixed(2));
+                customerTotals[p.customerName].count = toQtyNumber(customerTotals[p.customerName].count + getPurchaseQty(p), 0);
             });
 
             const sorted = Object.entries(customerTotals)
@@ -461,9 +498,9 @@
                         <div class="ranking-badge ${badgeClass}">${label}</div>
                         <div class="ranking-info">
                             <div class="ranking-name">${name}</div>
-                            <div class="ranking-detail">ซื้อ ${data.count} ครั้ง</div>
+                            <div class="ranking-detail">ซื้อ ${formatQtyText(data.count)} ชิ้น</div>
                         </div>
-                        <div class="ranking-total">${data.total} ฿</div>
+                        <div class="ranking-total">${data.total.toFixed(2)} ฿</div>
                     </div>
                 `;
             }).join('');
@@ -657,20 +694,20 @@
                 if (isSelected) {
                     return `
                         <div class="customer-btn selected ${shiftClass}" onclick="selectCustomer('${name}')">
-                            <button class="qty-btn qty-btn-minus" onclick="event.stopPropagation(); changeQty('${name}', -1)">-</button>
+                            <button class="qty-btn qty-btn-minus" onclick="event.stopPropagation(); changeQty('${name}', -0.5)">-</button>
                             <span class="customer-name-label">${name}</span>
                             <input
                                 type="number"
-                                min="1"
-                                step="1"
+                                min="0.5"
+                                step="0.5"
                                 class="qty-input"
-                                value="${qty}"
+                                value="${formatQtyText(qty)}"
                                 onclick="event.stopPropagation()"
                                 onfocus="event.stopPropagation()"
                                 onkeydown="event.stopPropagation(); if (event.key === 'Enter') { event.preventDefault(); applyQtyInput('${name}', this.value); }"
                                 onblur="applyQtyInput('${name}', this.value)"
                             />
-                            <button class="qty-btn qty-btn-plus" onclick="event.stopPropagation(); changeQty('${name}', 1)">+</button>
+                            <button class="qty-btn qty-btn-plus" onclick="event.stopPropagation(); changeQty('${name}', 0.5)">+</button>
                         </div>
                     `;
                 }
@@ -737,7 +774,7 @@
             if (!selectedCustomers[name]) {
                 selectedCustomers[name] = 1;
             } else {
-                selectedCustomers[name]++;
+                selectedCustomers[name] = toQtyNumber(selectedCustomers[name] + 0.5, 1);
             }
 
             const searchTerm = document.getElementById('customerSearch').value;
@@ -747,7 +784,7 @@
 
         // Change quantity with +/- buttons
         function changeQty(name, delta) {
-            const newQty = (selectedCustomers[name] || 0) + delta;
+            const newQty = toQtyNumber((selectedCustomers[name] || 0) + delta, 0);
             if (newQty <= 0) {
                 delete selectedCustomers[name];
             } else {
@@ -760,8 +797,8 @@
         }
 
         function applyQtyInput(name, rawValue) {
-            const parsed = Math.floor(Number(rawValue));
-            if (!Number.isFinite(parsed) || parsed <= 0) {
+            const parsed = toQtyNumber(rawValue, 0);
+            if (!Number.isFinite(parsed) || parsed < 0.5) {
                 delete selectedCustomers[name];
             } else {
                 selectedCustomers[name] = parsed;
@@ -776,13 +813,13 @@
         function updateConfirmSection() {
             const section = document.getElementById('confirmSection');
             const customerCount = Object.keys(selectedCustomers).length;
-            const totalQty = Object.values(selectedCustomers).reduce((sum, q) => sum + q, 0);
+            const totalQty = toQtyNumber(Object.values(selectedCustomers).reduce((sum, q) => sum + (Number(q) || 0), 0), 0);
 
             if (customerCount > 0) {
                 section.style.display = 'block';
-                const totalPrice = totalQty * (selectedSnack ? selectedSnack.price : 0);
+                const totalPrice = Number((totalQty * (selectedSnack ? selectedSnack.price : 0)).toFixed(2));
                 document.getElementById('selectedCount').innerHTML =
-                    `${customerCount} คน / ${totalQty} ชิ้น / รวม ${totalPrice} ฿`;
+                    `${customerCount} คน / ${formatQtyText(totalQty)} ชิ้น / รวม ${totalPrice.toFixed(2)} ฿`;
             } else {
                 section.style.display = 'none';
             }
@@ -792,7 +829,7 @@
         // Confirm purchase for all selected customers
         function confirmPurchase() {
             const customerCount = Object.keys(selectedCustomers).length;
-            const totalQty = Object.values(selectedCustomers).reduce((sum, q) => sum + q, 0);
+            const totalQty = toQtyNumber(Object.values(selectedCustomers).reduce((sum, q) => sum + (Number(q) || 0), 0), 0);
 
             if (customerCount === 0) {
                 showToast('⚠️ กรุณาเลือกชื่อลูกค้า', 'warning');
@@ -829,27 +866,33 @@
             };
             const newPurchases = [];
             Object.entries(selectedCustomers).forEach(([customerName, qty]) => {
-                for (let i = 0; i < qty; i++) {
-                    newPurchases.push({
-                        id: Date.now() + Math.random(),
-                        customerName: customerName,
-                        snack: snackSnapshot,
-                        price: unitPrice,
-                        unitPrice: unitPrice,
-                        unitCost: unitCost,
-                        revenue: unitPrice,
-                        cost: unitCost,
-                        profit: unitProfit,
-                        date: now,
-                        settledAt: null
-                    });
-                }
+                const qtyValue = Math.max(0.5, toQtyNumber(qty, 1));
+                const lineRevenue = Number((qtyValue * unitPrice).toFixed(2));
+                const lineCost = Number((qtyValue * unitCost).toFixed(2));
+                const lineProfit = Number((lineRevenue - lineCost).toFixed(2));
+                newPurchases.push({
+                    id: Date.now() + Math.random(),
+                    customerName: customerName,
+                    snack: snackSnapshot,
+                    price: unitPrice,
+                    qty: qtyValue,
+                    unitPrice: unitPrice,
+                    unitCost: unitCost,
+                    lineRevenue,
+                    lineCost,
+                    lineProfit,
+                    revenue: lineRevenue,
+                    cost: lineCost,
+                    profit: lineProfit,
+                    date: now,
+                    settledAt: null
+                });
             });
             purchases = newPurchases.concat(purchases);
 
             // Decrease stock
-            snackInList.stock -= totalQty;
-            snackInList.totalSold = (Number(snackInList.totalSold) || 0) + totalQty;
+            snackInList.stock = Math.max(0, toQtyNumber((Number(snackInList.stock) || 0) - totalQty, 0));
+            snackInList.totalSold = toQtyNumber((Number(snackInList.totalSold) || 0) + totalQty, 0);
             saveSnacks();
 
             savePurchases();
@@ -858,7 +901,7 @@
             updateRanking();
             refreshProfitTabIfVisible();
 
-            const names = Object.entries(selectedCustomers).map(([n, q]) => `${n}(${q})`).join(', ');
+            const names = Object.entries(selectedCustomers).map(([n, q]) => `${n}(${formatQtyText(q)})`).join(', ');
             addAuditLog('sale.create', `ขาย ${selectedSnack.name} ให้ ${names}`, { qty: totalQty, unitPrice, unitCost });
             showToast(`✅ บันทึกสำเร็จ! ${selectedSnack.name} - ${names}`, 'success');
 
@@ -898,11 +941,11 @@
                 return purchaseDate.getTime() === today.getTime();
             });
 
-            const count = todayPurchases.length;
-            const total = todayPurchases.reduce((sum, p) => sum + p.price, 0);
+            const count = toQtyNumber(todayPurchases.reduce((sum, p) => sum + getPurchaseQty(p), 0), 0);
+            const total = Number(todayPurchases.reduce((sum, p) => sum + getPurchaseLineRevenue(p), 0).toFixed(2));
 
-            document.getElementById('todayCount').textContent = count;
-            document.getElementById('todayTotal').textContent = `${total} ฿`;
+            document.getElementById('todayCount').textContent = formatQtyText(count);
+            document.getElementById('todayTotal').textContent = `${total.toFixed(2)} ฿`;
 
             // Render today's purchase list
             const listContainer = document.getElementById('todayPurchaseList');
@@ -918,15 +961,17 @@
 
             todayPurchases.slice(0, showCount).forEach(p => {
                 const time = new Date(p.date).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+                const qty = getPurchaseQty(p);
+                const lineAmount = getPurchaseLineRevenue(p);
                 html += `
                     <div class="today-purchase-item">
                         <div class="purchase-info">
                             ${getSnackDisplayHTML(p.snack, 'mini')}
-                            <span><strong>${p.customerName}</strong> - ${p.snack.name}</span>
+                            <span><strong>${p.customerName}</strong> - ${p.snack.name} (${formatQtyText(qty)} ชิ้น)</span>
                         </div>
                         <div style="display: flex; align-items: center; gap: 10px;">
                             <span class="purchase-time">${time}</span>
-                            <span class="purchase-price">${p.price} ฿</span>
+                            <span class="purchase-price">${lineAmount.toFixed(2)} ฿</span>
                         </div>
                     </div>`;
             });
@@ -1014,7 +1059,7 @@
                             <div class="history-item-name">${p.customerName}</div>
                             <div class="history-item-date">${dateStr} ${timeStr}</div>
                         </div>
-                        <div class="history-item-price">${p.price} &#3647;</div>
+                        <div class="history-item-price">${getPurchaseLineRevenue(p).toFixed(2)} &#3647;</div>
                     </div>`;
             });
             html += '</div>';
@@ -1075,11 +1120,15 @@
             const saved = localStorage.getItem('snackPurchases');
             if (saved) {
                 purchases = JSON.parse(saved).map(p => {
+                    const qty = Math.max(0.01, toQtyNumber(p.qty, 1));
                     const unitPrice = Number(p.unitPrice ?? p.price) || 0;
                     const unitCost = Number(p.unitCost ?? p.snack?.costPrice) || 0;
                     const profit = Number.isFinite(Number(p.profit))
                         ? Number(p.profit)
                         : (unitPrice - unitCost);
+                    const lineRevenue = Number((qty * unitPrice).toFixed(2));
+                    const lineCost = Number((qty * unitCost).toFixed(2));
+                    const lineProfit = Number((lineRevenue - lineCost).toFixed(2));
                     const settledDate = p?.settledAt ? new Date(p.settledAt) : null;
                     const normalizedSettledAt = settledDate && !Number.isNaN(settledDate.getTime())
                         ? settledDate.toISOString()
@@ -1108,11 +1157,15 @@
                     return {
                         ...p,
                         snack: snackRef,
+                        qty,
                         unitPrice,
                         unitCost,
-                        revenue: Number(p.revenue ?? unitPrice) || 0,
-                        cost: Number(p.cost ?? unitCost) || 0,
-                        profit,
+                        lineRevenue,
+                        lineCost,
+                        lineProfit,
+                        revenue: lineRevenue,
+                        cost: lineCost,
+                        profit: Number.isFinite(Number(p.profit)) ? Number(p.profit) : lineProfit,
                         settledAt: normalizedSettledAt
                     };
                 });

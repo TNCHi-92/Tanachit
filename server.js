@@ -76,8 +76,8 @@ async function initDb() {
       price NUMERIC(12,2) NOT NULL,
       cost_price NUMERIC(12,2) NOT NULL DEFAULT 0,
       sell_price NUMERIC(12,2) NOT NULL DEFAULT 0,
-      total_sold INTEGER NOT NULL DEFAULT 0,
-      stock INTEGER NOT NULL DEFAULT 0
+      total_sold NUMERIC(12,2) NOT NULL DEFAULT 0,
+      stock NUMERIC(12,2) NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS customers (
@@ -110,9 +110,9 @@ async function initDb() {
       snack_name TEXT NOT NULL,
       snack_emoji TEXT,
       snack_image TEXT,
-      snack_stock INTEGER,
+      snack_stock NUMERIC(12,2),
       price NUMERIC(12,2) NOT NULL,
-      qty INTEGER NOT NULL DEFAULT 1,
+      qty NUMERIC(12,2) NOT NULL DEFAULT 1,
       unit_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
       unit_price NUMERIC(12,2) NOT NULL DEFAULT 0,
       line_revenue NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -138,11 +138,13 @@ async function initDb() {
 
     ALTER TABLE snacks ADD COLUMN IF NOT EXISTS cost_price NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE snacks ADD COLUMN IF NOT EXISTS sell_price NUMERIC(12,2) NOT NULL DEFAULT 0;
-    ALTER TABLE snacks ADD COLUMN IF NOT EXISTS total_sold INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE snacks ADD COLUMN IF NOT EXISTS total_sold NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE snacks ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'snack';
     ALTER TABLE snacks ALTER COLUMN price TYPE NUMERIC(12,2) USING ROUND(price::numeric, 2);
     ALTER TABLE snacks ALTER COLUMN cost_price TYPE NUMERIC(12,2) USING ROUND(cost_price::numeric, 2);
     ALTER TABLE snacks ALTER COLUMN sell_price TYPE NUMERIC(12,2) USING ROUND(sell_price::numeric, 2);
+    ALTER TABLE snacks ALTER COLUMN stock TYPE NUMERIC(12,2) USING ROUND(stock::numeric, 2);
+    ALTER TABLE snacks ALTER COLUMN total_sold TYPE NUMERIC(12,2) USING ROUND(total_sold::numeric, 2);
     ALTER TABLE snacks ALTER COLUMN cost_price SET DEFAULT 0;
     ALTER TABLE snacks ALTER COLUMN sell_price SET DEFAULT 0;
     UPDATE snacks SET sell_price = price WHERE sell_price = 0;
@@ -162,8 +164,9 @@ async function initDb() {
         OR name LIKE U&'%\\0E44\\0E2D\\0E15\\0E34\\0E21%'
       );
 
-    ALTER TABLE purchases ADD COLUMN IF NOT EXISTS qty INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE purchases ADD COLUMN IF NOT EXISTS qty NUMERIC(12,2) NOT NULL DEFAULT 1;
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS snack_image TEXT;
+    ALTER TABLE purchases ADD COLUMN IF NOT EXISTS snack_stock NUMERIC(12,2);
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS unit_price NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS line_revenue NUMERIC(12,2) NOT NULL DEFAULT 0;
@@ -171,6 +174,8 @@ async function initDb() {
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS line_profit NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE purchases ADD COLUMN IF NOT EXISTS settled_at TIMESTAMPTZ NULL;
     ALTER TABLE purchases ALTER COLUMN price TYPE NUMERIC(12,2) USING ROUND(price::numeric, 2);
+    ALTER TABLE purchases ALTER COLUMN qty TYPE NUMERIC(12,2) USING ROUND(qty::numeric, 2);
+    ALTER TABLE purchases ALTER COLUMN snack_stock TYPE NUMERIC(12,2) USING ROUND(snack_stock::numeric, 2);
     ALTER TABLE purchases ALTER COLUMN unit_cost TYPE NUMERIC(12,2) USING ROUND(unit_cost::numeric, 2);
     ALTER TABLE purchases ALTER COLUMN unit_price TYPE NUMERIC(12,2) USING ROUND(unit_price::numeric, 2);
     ALTER TABLE purchases ALTER COLUMN line_revenue TYPE NUMERIC(12,2) USING ROUND(line_revenue::numeric, 2);
@@ -189,7 +194,7 @@ async function initDb() {
     UPDATE snacks s
     SET total_sold = sub.sold_qty
     FROM (
-      SELECT snack_id, COALESCE(SUM(qty), 0)::int AS sold_qty
+      SELECT snack_id, ROUND(COALESCE(SUM(qty), 0)::numeric, 2) AS sold_qty
       FROM purchases
       WHERE snack_id IS NOT NULL
       GROUP BY snack_id
@@ -230,6 +235,10 @@ function asMoney(value, fallback = 0) {
   return Number(n.toFixed(2));
 }
 
+function asQty(value, fallback = 0) {
+  return asMoney(value, fallback);
+}
+
 function normalizeSnackCategory(category, name = "") {
   const value = asString(category, "").trim().toLowerCase().replace(/\s+/g, "_");
   if (value === "ice_cream" || value === "icecream" || value === "ice-cream") return "ice_cream";
@@ -251,7 +260,7 @@ function normalizeSnack(snack, idx) {
   const id = asInt(snack?.id, idx + 1);
   const sellPrice = asMoney(snack?.sellPrice ?? snack?.price, 0);
   const costPrice = asMoney(snack?.costPrice, 0);
-  const totalSold = asInt(snack?.totalSold, 0);
+  const totalSold = asQty(snack?.totalSold, 0);
   return {
     id,
     name: asString(snack?.name, `Snack ${id}`),
@@ -262,7 +271,7 @@ function normalizeSnack(snack, idx) {
     costPrice: Math.max(0, costPrice),
     sellPrice: Math.max(0, sellPrice),
     totalSold: Math.max(0, totalSold),
-    stock: Math.max(0, asInt(snack?.stock, 0))
+    stock: Math.max(0, asQty(snack?.stock, 0))
   };
 }
 
@@ -319,9 +328,9 @@ function validateState(state) {
   state.snacks.forEach((s, i) => {
     if (!asString(s?.name).trim()) errors.push(`snacks[${i}] name is required`);
     if (asMoney(s?.price, 0) < 0) errors.push(`snacks[${i}] price must be >= 0`);
-    if (asInt(s?.stock, 0) < 0) errors.push(`snacks[${i}] stock must be >= 0`);
+    if (asQty(s?.stock, 0) < 0) errors.push(`snacks[${i}] stock must be >= 0`);
     if (asMoney(s?.costPrice, 0) < 0) errors.push(`snacks[${i}] costPrice must be >= 0`);
-    if (asInt(s?.totalSold, 0) < 0) errors.push(`snacks[${i}] totalSold must be >= 0`);
+    if (asQty(s?.totalSold, 0) < 0) errors.push(`snacks[${i}] totalSold must be >= 0`);
   });
 
   state.customers.forEach((c, i) => {
@@ -357,7 +366,7 @@ function normalizePurchase(purchase, idx) {
       settledAt = settledDate.toISOString();
     }
   }
-  const qty = Math.max(1, asInt(purchase?.qty, 1));
+  const qty = Math.max(0.01, asQty(purchase?.qty, 1));
   const unitPrice = Math.max(0, asMoney(purchase?.unitPrice ?? purchase?.price ?? snack?.sellPrice ?? snack?.price, 0));
   const unitCost = Math.max(0, asMoney(purchase?.unitCost ?? snack?.costPrice, 0));
   const lineRevenue = asMoney(qty * unitPrice, 0);
@@ -370,7 +379,7 @@ function normalizePurchase(purchase, idx) {
     snackId: snack?.id !== undefined && snack?.id !== null ? asInt(snack.id, null) : null,
     snackName: asString(snack?.name, "Unknown"),
     snackEmoji: snack?.emoji ? asString(snack.emoji) : null,
-    snackStock: snack?.stock !== undefined && snack?.stock !== null ? asInt(snack.stock, null) : null,
+    snackStock: snack?.stock !== undefined && snack?.stock !== null ? asQty(snack.stock, null) : null,
     price: unitPrice,
     qty,
     unitCost,
@@ -445,6 +454,15 @@ async function writeStateTx(client, state) {
     return { ...row, id: candidate };
   });
 
+  // Preserve existing images before deleting snacks (client may omit them to save bandwidth)
+  const existingImages = new Map();
+  try {
+    const imgRes = await client.query("SELECT id, image FROM snacks WHERE image IS NOT NULL");
+    for (const row of imgRes.rows) {
+      existingImages.set(Number(row.id), row.image);
+    }
+  } catch (_e) { /* table may not exist yet */ }
+
   await client.query("DELETE FROM audit_logs");
   await client.query("DELETE FROM purchases");
   await client.query("DELETE FROM users");
@@ -452,9 +470,10 @@ async function writeStateTx(client, state) {
   await client.query("DELETE FROM snacks");
 
   for (const snack of snacks) {
+    const image = snack.image || existingImages.get(snack.id) || null;
     await client.query(
       "INSERT INTO snacks (id, name, emoji, image, category, price, cost_price, sell_price, total_sold, stock) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-      [snack.id, snack.name, snack.emoji, snack.image, snack.category, snack.price, snack.costPrice, snack.sellPrice, snack.totalSold, snack.stock]
+      [snack.id, snack.name, snack.emoji, image, snack.category, snack.price, snack.costPrice, snack.sellPrice, snack.totalSold, snack.stock]
     );
   }
 
@@ -599,12 +618,18 @@ async function readState() {
 
 async function upsertSingleSnack(snackInput, idFromPath) {
   const normalized = normalizeSnack({ ...snackInput, id: idFromPath }, 0);
+  const hasImage = snackInput?.image !== undefined && snackInput?.image !== null;
 
   if (!pool) {
     const current = sanitizeState(fallbackState);
     const idx = current.snacks.findIndex((s) => Number(s.id) === Number(normalized.id));
-    if (idx >= 0) current.snacks[idx] = { ...current.snacks[idx], ...normalized };
-    else current.snacks.push(normalized);
+    if (idx >= 0) {
+      const existing = current.snacks[idx];
+      if (!hasImage) normalized.image = existing.image;
+      current.snacks[idx] = { ...existing, ...normalized };
+    } else {
+      current.snacks.push(normalized);
+    }
     fallbackState = current;
     return normalized;
   }
@@ -617,7 +642,7 @@ async function upsertSingleSnack(snackInput, idFromPath) {
     SET
       name = EXCLUDED.name,
       emoji = EXCLUDED.emoji,
-      image = EXCLUDED.image,
+      image = CASE WHEN $11::boolean THEN EXCLUDED.image ELSE COALESCE(snacks.image, EXCLUDED.image) END,
       category = EXCLUDED.category,
       price = EXCLUDED.price,
       cost_price = EXCLUDED.cost_price,
@@ -635,7 +660,8 @@ async function upsertSingleSnack(snackInput, idFromPath) {
       normalized.costPrice,
       normalized.sellPrice,
       normalized.totalSold,
-      normalized.stock
+      normalized.stock,
+      hasImage
     ]
   );
 
@@ -705,7 +731,7 @@ function getMonthlyReport(state, monthText) {
     const itemName = asString(p?.snack?.name || p.snackName, "Unknown");
     const unitPrice = Math.max(0, asMoney(p.unitPrice ?? p.price, 0));
     const unitCost = Math.max(0, asMoney(p.unitCost ?? p?.snack?.costPrice, 0));
-    const qty = Math.max(1, asInt(p.qty, 1));
+    const qty = Math.max(0.01, asQty(p.qty, 1));
     const lineRevenue = asMoney(qty * unitPrice, 0);
     const lineCost = asMoney(qty * unitCost, 0);
 

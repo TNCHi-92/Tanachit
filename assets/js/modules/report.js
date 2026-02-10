@@ -24,8 +24,13 @@ function formatMoneyText(value) {
     return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
+function formatQtyText(value) {
+    const n = toMoneyNumber(value);
+    return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '');
+}
+
 function getQty(purchase) {
-    return Math.max(1, Number(purchase?.qty) || 1);
+    return Math.max(0.01, toMoneyNumber(purchase?.qty ?? 1));
 }
 
 function getUnitPrice(purchase) {
@@ -82,12 +87,12 @@ function buildCustomerBilling(monthlyPurchases) {
 
         const row = customerBilling[customerName];
         row.total = sumMoney(row.total, lineRevenue);
-        row.count += qty;
+        row.count = toMoneyNumber(row.count + qty);
 
         if (!row.items[snackName]) {
             row.items[snackName] = { qty: 0, total: 0 };
         }
-        row.items[snackName].qty += qty;
+        row.items[snackName].qty = toMoneyNumber(row.items[snackName].qty + qty);
         row.items[snackName].total = sumMoney(row.items[snackName].total, lineRevenue);
     });
     return customerBilling;
@@ -99,7 +104,7 @@ function formatCustomerItemsLine(customerData, maxItems = 3) {
     if (entries.length === 0) return 'ยังไม่มีรายการสินค้า';
 
     const shown = entries.slice(0, maxItems)
-        .map(([snackName, item]) => `${snackName} x${item.qty} (${formatMoneyText(item.total)} ฿)`)
+        .map(([snackName, item]) => `${snackName} x${formatQtyText(item.qty)} (${formatMoneyText(item.total)} ฿)`)
         .join(' • ');
     if (entries.length <= maxItems) return shown;
     return `${shown} • +${entries.length - maxItems} รายการ`;
@@ -132,7 +137,7 @@ function collectProductRowsFromPurchases(sourcePurchases) {
         }
 
         const row = rowsByProduct.get(key);
-        row.soldQty += qty;
+        row.soldQty = toMoneyNumber(row.soldQty + qty);
         row.revenue = sumMoney(row.revenue, revenue);
         row.cost = sumMoney(row.cost, cost);
         row.profit = sumMoney(row.profit, profit);
@@ -208,7 +213,7 @@ function renderProductRows(rows, emptyText) {
         <div class="customer-detail-item">
             <div class="customer-detail-header">
                 <div class="customer-detail-name">${row.name}</div>
-                <div class="customer-detail-total">ขาย ${row.soldQty} ชิ้น</div>
+                <div class="customer-detail-total">ขาย ${formatQtyText(row.soldQty)} ชิ้น</div>
             </div>
             <div class="customer-detail-info">
                 <span>ยอดขาย ${formatMoneyText(row.revenue)} &#3647;</span>
@@ -260,7 +265,7 @@ function generateReport() {
     const monthlyCost = monthlyProductRows.reduce((sum, row) => sumMoney(sum, row.cost), 0);
     const monthlyProfit = toMoneyNumber(monthlyRevenue - monthlyCost);
     const totalStock = snacks.reduce((sum, item) => sum + (Number(item.stock) || 0), 0);
-    const soldPiecesThisMonth = monthlyProductRows.reduce((sum, row) => sum + row.soldQty, 0);
+    const soldPiecesThisMonth = toMoneyNumber(monthlyProductRows.reduce((sum, row) => sum + row.soldQty, 0));
 
     const customerBilling = buildCustomerBilling(getOutstandingPurchases());
 
@@ -326,8 +331,8 @@ function generateReport() {
                                 <div class="customer-detail-total">${formatMoneyText(data.total)} &#3647;</div>
                             </div>
                             <div class="customer-detail-info">
-                                <span>ซื้อ ${data.count} ชิ้น</span>
-                                <span>เฉลี่ย ${(data.total / Math.max(1, data.count)).toFixed(2)} &#3647;/ชิ้น</span>
+                                <span>ซื้อ ${formatQtyText(data.count)} ชิ้น</span>
+                                <span>เฉลี่ย ${(data.total / Math.max(0.01, data.count)).toFixed(2)} &#3647;/ชิ้น</span>
                             </div>
                             <div class="customer-detail-info">
                                 <span>รายการ: ${formatCustomerItemsLine(data, 3)}</span>
@@ -373,7 +378,7 @@ function generateReport() {
                         <div class="customer-detail-name">Top 5 เดือนนี้</div>
                     </div>
                     ${monthlyTopRows.length > 0
-                        ? monthlyTopRows.map((row, idx) => `<div class="customer-detail-info"><span>#${idx + 1} ${row.name}</span><span>${row.soldQty} ชิ้น</span></div>`).join('')
+                        ? monthlyTopRows.map((row, idx) => `<div class="customer-detail-info"><span>#${idx + 1} ${row.name}</span><span>${formatQtyText(row.soldQty)} ชิ้น</span></div>`).join('')
                         : '<div class="customer-detail-info"><span>ยังไม่มีข้อมูล</span></div>'}
                 </div>
                 <div class="customer-detail-item">
@@ -381,7 +386,7 @@ function generateReport() {
                         <div class="customer-detail-name">Top 5 สะสมทั้งหมด</div>
                     </div>
                     ${cumulativeTopRows.length > 0
-                        ? cumulativeTopRows.map((row, idx) => `<div class="customer-detail-info"><span>#${idx + 1} ${row.name}</span><span>${row.soldQty} ชิ้น</span></div>`).join('')
+                        ? cumulativeTopRows.map((row, idx) => `<div class="customer-detail-info"><span>#${idx + 1} ${row.name}</span><span>${formatQtyText(row.soldQty)} ชิ้น</span></div>`).join('')
                         : '<div class="customer-detail-info"><span>ยังไม่มีข้อมูล</span></div>'}
                 </div>
             </div>
@@ -479,7 +484,7 @@ function exportProductRowsText(title, rows) {
         return `${text}(ไม่มีข้อมูล)\n\n`;
     }
     rows.forEach((row) => {
-        text += `${row.name}: sold=${row.soldQty}, revenue=${formatMoneyText(row.revenue)} THB, cost=${formatMoneyText(row.cost)} THB, profit=${formatMoneyText(row.profit)} THB, margin=${row.marginPct.toFixed(2)}%\n`;
+        text += `${row.name}: sold=${formatQtyText(row.soldQty)}, revenue=${formatMoneyText(row.revenue)} THB, cost=${formatMoneyText(row.cost)} THB, profit=${formatMoneyText(row.profit)} THB, margin=${row.marginPct.toFixed(2)}%\n`;
     });
     return `${text}\n`;
 }
@@ -524,11 +529,11 @@ function exportReport() {
     Object.entries(customerBilling)
         .sort((a, b) => b[1].total - a[1].total)
         .forEach(([name, data]) => {
-            reportText += `${name}: total=${formatMoneyText(data.total)} THB, qty=${data.count}\n`;
+            reportText += `${name}: total=${formatMoneyText(data.total)} THB, qty=${formatQtyText(data.count)}\n`;
             Object.entries(data.items || {})
                 .sort((a, b) => b[1].total - a[1].total)
                 .forEach(([snackName, item]) => {
-                    reportText += `  - ${snackName}: qty=${item.qty}, amount=${formatMoneyText(item.total)} THB\n`;
+                    reportText += `  - ${snackName}: qty=${formatQtyText(item.qty)}, amount=${formatMoneyText(item.total)} THB\n`;
                 });
         });
     reportText += '\n';
@@ -578,7 +583,7 @@ function exportReportExcel() {
     const monthlyCost = monthlyProductRows.reduce((sum, row) => sumMoney(sum, row.cost), 0);
     const monthlyProfit = toMoneyNumber(monthlyRevenue - monthlyCost);
     const totalStock = snacks.reduce((sum, item) => sum + (Number(item.stock) || 0), 0);
-    const soldPiecesThisMonth = monthlyProductRows.reduce((sum, row) => sum + row.soldQty, 0);
+    const soldPiecesThisMonth = toMoneyNumber(monthlyProductRows.reduce((sum, row) => sum + row.soldQty, 0));
     const customerBilling = buildCustomerBilling(getOutstandingPurchases());
     const sellOutForecast = snacks.map((item) => {
         const stock = Number(item.stock) || 0;
@@ -637,14 +642,14 @@ function exportReportExcel() {
         .map(([name, data], idx) => {
             const itemsText = Object.entries(data.items || {})
                 .sort((a, b) => b[1].total - a[1].total)
-                .map(([sn, item]) => `${sn} x${item.qty} (${formatMoneyText(item.total)})`)
+                .map(([sn, item]) => `${sn} x${formatQtyText(item.qty)} (${formatMoneyText(item.total)})`)
                 .join(', ');
             return [
                 idx + 1,
                 name,
                 data.count,
                 data.total,
-                toMoneyNumber(data.total / Math.max(1, data.count)),
+                toMoneyNumber(data.total / Math.max(0.01, data.count)),
                 itemsText
             ];
         });
@@ -744,23 +749,28 @@ function exportReportExcel() {
     XLSX.utils.book_append_sheet(wb, wsForecast, 'พยากรณ์กำไร');
 
     // ===== Sheet 6: Customer Detail (all purchases this month) =====
-    const custDetailHeader = ['ลำดับ', 'วันที่', 'เวลา', 'ลูกค้า', 'สินค้า', 'ราคา (บาท)', 'ต้นทุน (บาท)', 'กำไร (บาท)'];
+    const custDetailHeader = ['ลำดับ', 'วันที่', 'เวลา', 'ลูกค้า', 'สินค้า', 'จำนวน', 'ยอดขาย (บาท)', 'ต้นทุน (บาท)', 'กำไร (บาท)'];
     const sortedMonthly = [...monthlyPurchases].sort((a, b) => new Date(b.date) - new Date(a.date));
     const custDetailRows = sortedMonthly.map((p, idx) => {
         const dt = new Date(p.date);
         const dateStr = dt.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' });
         const timeStr = dt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+        const qty = getQty(p);
         const unitPrice = getUnitPrice(p);
         const unitCost = getUnitCost(p);
+        const lineRevenue = toMoneyNumber(qty * unitPrice);
+        const lineCost = toMoneyNumber(qty * unitCost);
+        const lineProfit = toMoneyNumber(lineRevenue - lineCost);
         return [
             idx + 1,
             dateStr,
             timeStr,
             p.customerName || '',
             getSnackName(p),
-            unitPrice,
-            unitCost,
-            toMoneyNumber(unitPrice - unitCost)
+            qty,
+            lineRevenue,
+            lineCost,
+            lineProfit
         ];
     });
     const custDetailData = [
@@ -769,11 +779,11 @@ function exportReportExcel() {
         custDetailHeader,
         ...custDetailRows,
         [],
-        ['', '', '', '', 'รวม', monthlyRevenue, monthlyCost, monthlyProfit]
+        ['', '', '', '', '', 'รวม', monthlyRevenue, monthlyCost, monthlyProfit]
     ];
     const wsCustDetail = XLSX.utils.aoa_to_sheet(custDetailData);
     autoWidth(wsCustDetail, custDetailData);
-    wsCustDetail['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 7 } }];
+    wsCustDetail['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }];
     XLSX.utils.book_append_sheet(wb, wsCustDetail, 'รายการขายทั้งหมด');
 
     // Write and download
