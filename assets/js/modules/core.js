@@ -66,6 +66,13 @@
             return normalizeSnackCategory(category) === 'ice_cream' ? 'ตู้เย็น' : 'ขนม';
         }
 
+        function normalizeIsoDate(value) {
+            if (!value) return null;
+            const dt = new Date(value);
+            if (Number.isNaN(dt.getTime())) return null;
+            return dt.toISOString();
+        }
+
         function normalizeSnackData(list) {
             if (!Array.isArray(list)) return [];
             return list.map(item => ({
@@ -75,7 +82,8 @@
                 stock: Math.max(0, Number(item.stock) || 0),
                 costPrice: Math.max(0, Number(item.costPrice) || 0),
                 totalSold: Math.max(0, Number(item.totalSold) || 0),
-                category: normalizeSnackCategory(item.category, item.name)
+                category: normalizeSnackCategory(item.category, item.name),
+                createdAt: normalizeIsoDate(item.createdAt ?? item.created_at)
             }));
         }
 
@@ -254,7 +262,7 @@
 
                 users = users.map((u, idx) => ({
                     ...u,
-                    role: u?.role === 'admin' ? 'admin' : 'staff',
+                    role: resolveUserRole(u),
                     id: Number(u?.id) || (idx + 1)
                 }));
                 if (users.length > 0 && !users.some(u => u.role === 'admin')) {
@@ -284,8 +292,43 @@
             return currentUser && currentUser.role === 'admin';
         }
 
+        function isGuestIdentifier(value) {
+            const text = String(value || '').trim();
+            return /^guest\d*$/i.test(text);
+        }
+
+        function resolveUserRole(user) {
+            if (user?.role === 'admin') return 'admin';
+            if (user?.role === 'guest') return 'guest';
+            const aliases = Array.isArray(user?.aliases) ? user.aliases : [];
+            const hasGuestAlias = [user?.displayName, ...aliases].some(isGuestIdentifier);
+            return hasGuestAlias ? 'guest' : 'staff';
+        }
+
+        function isGuest() {
+            return currentUser && currentUser.role === 'guest';
+        }
+
         function roleLabel(role) {
-            return role === 'admin' ? 'ADMIN' : 'STAFF';
+            if (role === 'admin') return 'ADMIN';
+            if (role === 'guest') return 'GUEST';
+            return 'STAFF';
+        }
+
+        function applyRoleVisibility() {
+            const guest = isGuest();
+
+            const manageBtn = document.getElementById('manageBtn');
+            if (manageBtn) {
+                manageBtn.style.display = canManageData() ? 'inline-flex' : 'none';
+            }
+
+            const reportBtn = document.querySelector('button[onclick="showMonthlyReport()"]');
+            if (reportBtn) reportBtn.style.display = guest ? 'none' : '';
+
+            document.querySelectorAll('.summary-card').forEach((card) => {
+                card.style.display = '';
+            });
         }
 
         function ensureCanManageData() {
@@ -313,13 +356,32 @@
         function checkSession() {
             users = users.map((u, idx) => ({
                 ...u,
-                role: u?.role === 'admin' ? 'admin' : 'staff',
+                role: resolveUserRole(u),
                 id: Number(u?.id) || (idx + 1)
             }));
             if (users.length > 0 && !users.some(u => u.role === 'admin')) {
                 users[0].role = 'admin';
                 saveUsers();
             }
+
+            // Auto-login via URL: /=username (e.g. /=guest)
+            const pathMatch = window.location.pathname.match(/^\/=(.+)$/);
+            if (pathMatch) {
+                const autoName = decodeURIComponent(pathMatch[1]).toLowerCase();
+                const foundUser = users.find(u =>
+                    u.aliases.some(alias => alias.toLowerCase() === autoName)
+                );
+                if (foundUser) {
+                    currentUser = foundUser;
+                    localStorage.setItem('snackCurrentUser', foundUser.id);
+                    window.history.replaceState({}, '', '/');
+                    showApp();
+                    return true;
+                }
+                // User not found - clean URL and fall through to login
+                window.history.replaceState({}, '', '/');
+            }
+
             const savedUserId = localStorage.getItem('snackCurrentUser');
             if (savedUserId) {
                 const user = users.find(u => u.id === parseInt(savedUserId));
@@ -348,11 +410,8 @@
             document.getElementById('userGreetingName').textContent = `สวัสดี ${currentUser.displayName} 👋`;
             const roleBadge = document.getElementById('userRoleBadge');
             if (roleBadge) roleBadge.textContent = roleLabel(currentUser.role);
-            const manageBtn = document.getElementById('manageBtn');
-            if (manageBtn) {
-                manageBtn.style.display = canManageData() ? 'inline-flex' : 'none';
-            }
             initApp();
+            applyRoleVisibility();
         }
 
         function showLoginMessage(text, type = 'error') {
@@ -435,7 +494,10 @@
 
             const newId = users.length > 0 ? Math.max(...users.map(u => u.id)) + 1 : 1;
             const hasAdmin = users.some(u => u.role === 'admin');
-            const newUser = { id: newId, displayName, aliases, role: hasAdmin ? 'staff' : 'admin' };
+            const defaultRole = hasAdmin
+                ? ([displayName, ...aliases].some(isGuestIdentifier) ? 'guest' : 'staff')
+                : 'admin';
+            const newUser = { id: newId, displayName, aliases, role: defaultRole };
             users.push(newUser);
             saveUsers();
             addAuditLog('user.register', `สมัครสมาชิก ${displayName}`, { role: newUser.role });
@@ -545,10 +607,21 @@
             document.getElementById('currentDate').textContent = dateStr;
         }
 
+        function isSnackNew(snack) {
+            const createdAt = snack?.createdAt;
+            if (!createdAt) return false;
+            const createdMs = new Date(createdAt).getTime();
+            if (!Number.isFinite(createdMs)) return false;
+            const ageMs = Date.now() - createdMs;
+            const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+            return ageMs >= 0 && ageMs < sevenDaysMs;
+        }
+
         // Render snack grid
         function renderSnackCard(snack) {
                 const stock = snack.stock || 0;
                 const soldOut = stock <= 0;
+                const isNew = isSnackNew(snack);
                 let stockClass = 'in-stock';
                 let stockText = `เหลือ ${stock}`;
                 if (stock <= 0) { stockClass = 'out-of-stock'; stockText = 'หมด'; }
@@ -556,6 +629,8 @@
 
                 return `
                     <div class="snack-item ${soldOut ? 'sold-out' : ''}" onclick="selectSnack(${snack.id})">
+                        ${isNew ? '<span class="snack-badge snack-badge-new">NEW</span>' : ''}
+                        ${soldOut ? '<span class="snack-badge snack-badge-soldout">หมด</span>' : ''}
                         ${getSnackDisplayHTML(snack, 'grid')}
                         <div class="snack-name">${snack.name}</div>
                         <div class="snack-price">${snack.price} ฿</div>
@@ -643,6 +718,18 @@
                 snackHistoryPage = 1;
                 snackHistoryExpanded = true;
                 renderSnackPurchaseHistory(selectedSnack.id, 1);
+            } else if (isGuest()) {
+                // Guest: hide all purchase UI, show only product info + history
+                if (searchBox) searchBox.style.display = 'none';
+                if (shiftFilter) shiftFilter.style.display = 'none';
+                if (customerTitle) customerTitle.style.display = 'none';
+                if (customerGrid) customerGrid.style.display = 'none';
+                if (confirmSection) confirmSection.style.display = 'none';
+
+                // Auto-expand history for guest
+                snackHistoryPage = 1;
+                snackHistoryExpanded = true;
+                renderSnackPurchaseHistory(selectedSnack.id, 1);
             } else {
                 // Show purchase UI
                 if (searchBox) searchBox.style.display = '';
@@ -668,8 +755,8 @@
             // Show modal
             document.getElementById('customerModal').classList.add('active');
 
-            // Focus on search after modal animation (only if not sold out)
-            if (!isSoldOut) {
+            // Focus on search after modal animation (only if not sold out and not guest)
+            if (!isSoldOut && !isGuest()) {
                 setTimeout(() => {
                     document.getElementById('customerSearch').focus();
                 }, 300);

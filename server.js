@@ -72,6 +72,7 @@ async function initDb() {
       name TEXT NOT NULL,
       emoji TEXT,
       image TEXT,
+      created_at TIMESTAMPTZ NULL,
       category TEXT NOT NULL DEFAULT 'snack',
       price NUMERIC(12,2) NOT NULL,
       cost_price NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -140,6 +141,7 @@ async function initDb() {
     ALTER TABLE snacks ADD COLUMN IF NOT EXISTS sell_price NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE snacks ADD COLUMN IF NOT EXISTS total_sold NUMERIC(12,2) NOT NULL DEFAULT 0;
     ALTER TABLE snacks ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'snack';
+    ALTER TABLE snacks ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NULL;
     ALTER TABLE snacks ALTER COLUMN price TYPE NUMERIC(12,2) USING ROUND(price::numeric, 2);
     ALTER TABLE snacks ALTER COLUMN cost_price TYPE NUMERIC(12,2) USING ROUND(cost_price::numeric, 2);
     ALTER TABLE snacks ALTER COLUMN sell_price TYPE NUMERIC(12,2) USING ROUND(sell_price::numeric, 2);
@@ -239,6 +241,26 @@ function asQty(value, fallback = 0) {
   return asMoney(value, fallback);
 }
 
+function asIsoTimestamp(value, fallback = null) {
+  if (value === null || value === undefined || value === "") return fallback;
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return fallback;
+  return dt.toISOString();
+}
+
+function normalizeRole(role, fallback = "staff") {
+  const value = asString(role, "").trim().toLowerCase();
+  if (value === "admin") return "admin";
+  if (value === "guest") return "guest";
+  if (value === "staff") return "staff";
+
+  const fallbackValue = asString(fallback, "staff").trim().toLowerCase();
+  if (fallbackValue === "admin" || fallbackValue === "guest" || fallbackValue === "staff") {
+    return fallbackValue;
+  }
+  return "staff";
+}
+
 function normalizeSnackCategory(category, name = "") {
   const value = asString(category, "").trim().toLowerCase().replace(/\s+/g, "_");
   if (value === "ice_cream" || value === "icecream" || value === "ice-cream") return "ice_cream";
@@ -261,11 +283,13 @@ function normalizeSnack(snack, idx) {
   const sellPrice = asMoney(snack?.sellPrice ?? snack?.price, 0);
   const costPrice = asMoney(snack?.costPrice, 0);
   const totalSold = asQty(snack?.totalSold, 0);
+  const createdAt = asIsoTimestamp(snack?.createdAt ?? snack?.created_at, null);
   return {
     id,
     name: asString(snack?.name, `Snack ${id}`),
     emoji: snack?.emoji ? asString(snack.emoji) : null,
     image: snack?.image ? asString(snack.image) : null,
+    createdAt,
     category: normalizeSnackCategory(snack?.category, snack?.name),
     price: Math.max(0, sellPrice),
     costPrice: Math.max(0, costPrice),
@@ -286,7 +310,7 @@ function normalizeUser(user, idx) {
   const aliases = Array.isArray(user?.aliases)
     ? user.aliases.map((v) => asString(v).trim()).filter(Boolean)
     : [];
-  const role = user?.role === "admin" ? "admin" : "staff";
+  const role = normalizeRole(user?.role);
 
   return {
     id: asInt(user?.id, idx + 1),
@@ -311,7 +335,7 @@ function normalizeAuditLog(row, idx) {
     detail: asString(row?.detail, "").slice(0, 400),
     actorId: row?.actorId !== undefined && row?.actorId !== null ? asInt(row.actorId, null) : null,
     actorName: asString(row?.actorName, "Unknown").slice(0, 80),
-    actorRole: row?.actorRole === "admin" ? "admin" : "staff",
+    actorRole: normalizeRole(row?.actorRole),
     meta: row?.meta && typeof row.meta === "object" ? row.meta : {},
     at: new Date(row?.at || Date.now()).toISOString()
   };
@@ -341,7 +365,7 @@ function validateState(state) {
 
   state.users.forEach((u, i) => {
     if (!asString(u?.displayName).trim()) errors.push(`users[${i}] displayName is required`);
-    if (u?.role && !["admin", "staff"].includes(u.role)) errors.push(`users[${i}] role invalid`);
+    if (u?.role && !["admin", "staff", "guest"].includes(u.role)) errors.push(`users[${i}] role invalid`);
   });
   if (state.users.length > 0 && !state.users.some((u) => u?.role === "admin")) {
     errors.push("at least one admin user is required");
@@ -472,8 +496,8 @@ async function writeStateTx(client, state) {
   for (const snack of snacks) {
     const image = snack.image || existingImages.get(snack.id) || null;
     await client.query(
-      "INSERT INTO snacks (id, name, emoji, image, category, price, cost_price, sell_price, total_sold, stock) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
-      [snack.id, snack.name, snack.emoji, image, snack.category, snack.price, snack.costPrice, snack.sellPrice, snack.totalSold, snack.stock]
+      "INSERT INTO snacks (id, name, emoji, image, created_at, category, price, cost_price, sell_price, total_sold, stock) VALUES ($1, $2, $3, $4, $5::timestamptz, $6, $7, $8, $9, $10, $11)",
+      [snack.id, snack.name, snack.emoji, image, snack.createdAt, snack.category, snack.price, snack.costPrice, snack.sellPrice, snack.totalSold, snack.stock]
     );
   }
 
@@ -533,7 +557,7 @@ async function writeStateTx(client, state) {
 
 async function readState() {
   const [snackRes, customerRes, userRes, purchaseRes, auditRes] = await Promise.all([
-    pool.query("SELECT id, name, emoji, image, category, price, cost_price, sell_price, total_sold, stock FROM snacks ORDER BY id ASC"),
+    pool.query("SELECT id, name, emoji, image, created_at, category, price, cost_price, sell_price, total_sold, stock FROM snacks ORDER BY id ASC"),
     pool.query("SELECT name, shift FROM customers ORDER BY shift ASC, name ASC"),
     pool.query("SELECT id, display_name, aliases, role FROM users ORDER BY id ASC"),
     pool.query(
@@ -560,6 +584,7 @@ async function readState() {
       name: r.name,
       emoji: r.emoji,
       image: r.image,
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
       category: normalizeSnackCategory(r.category, r.name),
       price: Number(r.sell_price ?? r.price),
       sellPrice: Number(r.sell_price ?? r.price),
@@ -575,7 +600,7 @@ async function readState() {
       id: Number(r.id),
       displayName: r.display_name,
       aliases: Array.isArray(r.aliases) ? r.aliases : [],
-      role: r.role === "admin" ? "admin" : "staff"
+      role: normalizeRole(r.role)
     })),
     purchases: purchaseRes.rows.map((r) => {
       const parsedId = Number(r.id);
@@ -609,7 +634,7 @@ async function readState() {
       detail: r.detail,
       actorId: r.actor_id !== null ? Number(r.actor_id) : null,
       actorName: r.actor_name,
-      actorRole: r.actor_role === "admin" ? "admin" : "staff",
+      actorRole: normalizeRole(r.actor_role),
       meta: r.meta && typeof r.meta === "object" ? r.meta : {},
       at: new Date(r.created_at).toISOString()
     }))
@@ -636,13 +661,14 @@ async function upsertSingleSnack(snackInput, idFromPath) {
 
   await pool.query(
     `
-    INSERT INTO snacks (id, name, emoji, image, category, price, cost_price, sell_price, total_sold, stock)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    INSERT INTO snacks (id, name, emoji, image, created_at, category, price, cost_price, sell_price, total_sold, stock)
+    VALUES ($1, $2, $3, $4, $5::timestamptz, $6, $7, $8, $9, $10, $11)
     ON CONFLICT (id) DO UPDATE
     SET
       name = EXCLUDED.name,
       emoji = EXCLUDED.emoji,
-      image = CASE WHEN $11::boolean THEN EXCLUDED.image ELSE COALESCE(snacks.image, EXCLUDED.image) END,
+      image = CASE WHEN $12::boolean THEN EXCLUDED.image ELSE COALESCE(snacks.image, EXCLUDED.image) END,
+      created_at = COALESCE(snacks.created_at, EXCLUDED.created_at),
       category = EXCLUDED.category,
       price = EXCLUDED.price,
       cost_price = EXCLUDED.cost_price,
@@ -655,6 +681,7 @@ async function upsertSingleSnack(snackInput, idFromPath) {
       normalized.name,
       normalized.emoji,
       normalized.image,
+      normalized.createdAt,
       normalized.category,
       normalized.price,
       normalized.costPrice,
@@ -927,6 +954,12 @@ app.use(
 );
 
 app.get("/", (_req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.sendFile(path.join(process.cwd(), "pro.html"));
+});
+
+// Auto-login URL: /=username (e.g. /=guest)
+app.get("/=:username", (_req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.sendFile(path.join(process.cwd(), "pro.html"));
 });

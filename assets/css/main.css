@@ -286,6 +286,32 @@
             overflow: hidden;
         }
 
+        .snack-badge {
+            position: absolute;
+            top: 10px;
+            z-index: 2;
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.3px;
+            line-height: 1;
+            color: #fff;
+            pointer-events: none;
+        }
+
+        .snack-badge-new {
+            left: 10px;
+            background: linear-gradient(135deg, #00b894, #019875);
+            box-shadow: 0 4px 10px rgba(0, 184, 148, 0.35);
+        }
+
+        .snack-badge-soldout {
+            right: 10px;
+            background: linear-gradient(135deg, #b00020, #7f0016);
+            box-shadow: 0 4px 10px rgba(176, 0, 32, 0.45);
+        }
+
         .snack-item::before {
             content: '';
             position: absolute;
@@ -1204,32 +1230,27 @@
         }
 
         .snack-stock.out-of-stock {
-            background: #FFE5E5;
-            color: var(--primary);
+            background: #ffe7ea;
+            color: #b00020;
         }
 
         .snack-item.sold-out {
-            opacity: 0.6;
-            filter: grayscale(0.4);
+            background: linear-gradient(135deg, #fff7f8 0%, #ffffff 100%);
+            border-color: #f0c8ce;
             cursor: pointer;
         }
 
         .snack-item.sold-out:hover {
-            opacity: 0.85;
-            filter: grayscale(0.1);
+            border-color: #d97a88;
         }
 
-        .snack-item.sold-out::after {
-            content: 'หมด';
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            background: var(--primary);
-            color: white;
-            font-size: 0.75rem;
-            font-weight: 700;
-            padding: 2px 8px;
-            border-radius: 6px;
+        .snack-item.sold-out > :not(.snack-badge) {
+            opacity: 0.72;
+        }
+
+        .snack-item.sold-out .snack-img,
+        .snack-item.sold-out .snack-emoji {
+            filter: grayscale(1) saturate(0.1) contrast(0.9);
         }
 
         .sold-out-banner {

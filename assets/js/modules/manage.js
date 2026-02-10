@@ -791,7 +791,19 @@
             const newId = snacks.length > 0 ? Math.max(...snacks.map(s => s.id)) + 1 : 1;
             const normalizedPrice = Number(price.toFixed(2));
             const normalizedCostPrice = Number(costPrice.toFixed(2));
-            snacks.push({ id: newId, name, image: pendingSnackImage, emoji: '', price: normalizedPrice, sellPrice: normalizedPrice, costPrice: normalizedCostPrice, totalSold: 0, category, stock });
+            snacks.push({
+                id: newId,
+                name,
+                image: pendingSnackImage,
+                emoji: '',
+                price: normalizedPrice,
+                sellPrice: normalizedPrice,
+                costPrice: normalizedCostPrice,
+                totalSold: 0,
+                category,
+                stock,
+                createdAt: new Date().toISOString()
+            });
             const newSnack = snacks.find(s => s.id === newId);
             if (!newSnack) {
                 snacks = previousSnacks;
@@ -988,12 +1000,28 @@
             }
 
             const adminCount = users.filter(u => u.role === 'admin').length;
+            const roleWeight = { admin: 0, staff: 1, guest: 2 };
             list.innerHTML = users
                 .slice()
-                .sort((a, b) => (a.role === 'admin' ? -1 : 1) - (b.role === 'admin' ? -1 : 1) || a.displayName.localeCompare(b.displayName))
+                .sort((a, b) => (roleWeight[a.role] ?? 99) - (roleWeight[b.role] ?? 99) || a.displayName.localeCompare(b.displayName))
                 .map(u => {
-                    const canDemote = u.role === 'admin' && adminCount > 1;
-                    const roleBadgeColor = u.role === 'admin' ? 'var(--primary)' : 'var(--secondary)';
+                    const isAdmin = u.role === 'admin';
+                    const canDowngradeAdmin = !isAdmin || adminCount > 1;
+                    const roleBadgeColor = u.role === 'admin'
+                        ? 'var(--primary)'
+                        : u.role === 'guest'
+                            ? 'var(--warning)'
+                            : 'var(--secondary)';
+                    const actions = [];
+                    if (u.role !== 'admin') {
+                        actions.push(`<button class="btn-stock" onclick="setUserRole(${u.id}, 'admin')">เลื่อนเป็น Admin</button>`);
+                    }
+                    if (u.role !== 'staff') {
+                        actions.push(`<button class="btn-edit" ${isAdmin && !canDowngradeAdmin ? 'disabled style="opacity:.5;cursor:not-allowed;"' : ''} onclick="setUserRole(${u.id}, 'staff')">ตั้งเป็น Staff</button>`);
+                    }
+                    if (u.role !== 'guest') {
+                        actions.push(`<button class="btn-outline" ${isAdmin && !canDowngradeAdmin ? 'disabled style="opacity:.5;cursor:not-allowed;"' : ''} onclick="setUserRole(${u.id}, 'guest')">ตั้งเป็น Guest</button>`);
+                    }
                     return `
                         <div class="manage-item">
                             <div class="manage-item-info">
@@ -1002,9 +1030,7 @@
                                 <span style="font-size: 0.8rem; color: ${roleBadgeColor}; border: 1px solid ${roleBadgeColor}; padding: 2px 8px; border-radius: 999px; font-weight: 700;">${(u.role || 'staff').toUpperCase()}</span>
                             </div>
                             <div style="display: flex; align-items: center; gap: 8px;">
-                                ${u.role === 'admin'
-                                    ? `<button class="btn-edit" ${canDemote ? '' : 'disabled style="opacity:.5;cursor:not-allowed;"'} onclick="setUserRole(${u.id}, 'staff')">ลดสิทธิ์</button>`
-                                    : `<button class="btn-stock" onclick="setUserRole(${u.id}, 'admin')">เลื่อนเป็น Admin</button>`}
+                                ${actions.join('')}
                             </div>
                         </div>
                     `;
@@ -1015,10 +1041,10 @@
             if (!ensureCanManageData()) return;
             const user = users.find(u => Number(u.id) === Number(userId));
             if (!user) return;
-            const role = nextRole === 'admin' ? 'admin' : 'staff';
+            const role = nextRole === 'admin' ? 'admin' : nextRole === 'guest' ? 'guest' : 'staff';
             if (user.role === role) return;
 
-            if (user.role === 'admin' && role === 'staff') {
+            if (user.role === 'admin' && role !== 'admin') {
                 const adminCount = users.filter(u => u.role === 'admin').length;
                 if (adminCount <= 1) {
                     showToast('ต้องมี Admin อย่างน้อย 1 คน', 'warning');
@@ -1034,8 +1060,10 @@
                 currentUser.role = role;
                 const roleBadge = document.getElementById('userRoleBadge');
                 if (roleBadge) roleBadge.textContent = roleLabel(role);
-                const manageBtn = document.getElementById('manageBtn');
-                if (manageBtn) manageBtn.style.display = canManageData() ? 'inline-flex' : 'none';
+                if (typeof applyRoleVisibility === 'function') applyRoleVisibility();
+                if (!canManageData() && typeof closeManageModal === 'function') {
+                    closeManageModal();
+                }
             }
 
             renderManageUserRoleList();
